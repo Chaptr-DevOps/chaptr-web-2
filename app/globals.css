@@ -1,0 +1,150 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+  Chaptr design tokens (ported exactly from the production app).
+  Light + dark values provided for every semantic color.
+*/
+@theme inline {
+  --font-sans: var(--font-inter);
+  --font-serif: var(--font-crimson);
+
+  --color-background: var(--background);
+  --color-foreground: var(--text-primary);
+
+  --color-surface: var(--surface);
+  --color-surface-elevated: var(--surface-elevated);
+
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-tertiary: var(--text-tertiary);
+
+  --color-primary: var(--interactive-primary);
+  --color-primary-foreground: var(--interactive-primary-foreground);
+
+  --color-success: var(--success);
+  --color-error: var(--error);
+  --color-border: var(--border-main);
+
+  /* shadcn/base compatibility aliases so primitives keep working */
+  --color-card: var(--surface);
+  --color-card-foreground: var(--text-primary);
+  --color-popover: var(--surface-elevated);
+  --color-popover-foreground: var(--text-primary);
+  --color-secondary: var(--surface-elevated);
+  --color-secondary-foreground: var(--text-primary);
+  --color-muted: var(--surface-elevated);
+  --color-muted-foreground: var(--text-secondary);
+  --color-accent: var(--surface-elevated);
+  --color-accent-foreground: var(--text-primary);
+  --color-destructive: var(--error);
+  --color-input: var(--border-main);
+  --color-ring: var(--interactive-primary);
+
+  --radius-sm: 6px;
+  --radius-base: 8px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 20px;
+  --radius-full: 999px;
+
+  --text-hero: 40px;
+  --text-hero--line-height: 44px;
+  --text-hero--letter-spacing: -1px;
+  --text-section: 34px;
+  --text-section--line-height: 40px;
+  --text-section--letter-spacing: -0.7px;
+  --text-card: 22px;
+  --text-card--line-height: 28px;
+  --text-card--letter-spacing: -0.3px;
+  --text-body: 17px;
+  --text-body--line-height: 26px;
+}
+
+:root {
+  color-scheme: light;
+  --background: #f8f5ef;
+  --surface: #ffffff;
+  --surface-elevated: #ffffff;
+  --text-primary: #1f1f1f;
+  --text-secondary: #4d4d4d;
+  --text-tertiary: #757575;
+  --interactive-primary: #1d4e4b;
+  --interactive-primary-foreground: #f8f5ef;
+  --border-main: #e5e1d9;
+  --success: #2e7d4a;
+  --error: #c42847;
+  --radius: 12px;
+}
+
+.dark {
+  color-scheme: dark;
+  --background: #0c1014;
+  --surface: #141820;
+  --surface-elevated: #1c2028;
+  --text-primary: #f2f2f2;
+  --text-secondary: #b3b3b3;
+  --text-tertiary: #808080;
+  --interactive-primary: #4a9e9a;
+  --interactive-primary-foreground: #0c1014;
+  --border-main: #282e38;
+  --success: #5aaa75;
+  --error: #d94a66;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) {
+    color-scheme: dark;
+    --background: #0c1014;
+    --surface: #141820;
+    --surface-elevated: #1c2028;
+    --text-primary: #f2f2f2;
+    --text-secondary: #b3b3b3;
+    --text-tertiary: #808080;
+    --interactive-primary: #4a9e9a;
+    --interactive-primary-foreground: #0c1014;
+    --border-main: #282e38;
+    --success: #5aaa75;
+    --error: #d94a66;
+  }
+}
+
+@layer base {
+  * {
+    border-color: var(--border-main);
+  }
+  body {
+    background-color: var(--background);
+    color: var(--text-primary);
+    font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  }
+  h1,
+  h2,
+  h3,
+  h4,
+  .font-serif {
+    font-family: var(--font-serif), ui-serif, Georgia, serif;
+  }
+}
+
+@utility text-hero {
+  font-family: var(--font-serif), serif;
+  font-size: var(--text-hero);
+  line-height: var(--text-hero--line-height);
+  letter-spacing: var(--text-hero--letter-spacing);
+}
+@utility text-section {
+  font-family: var(--font-serif), serif;
+  font-size: var(--text-section);
+  line-height: var(--text-section--line-height);
+  letter-spacing: var(--text-section--letter-spacing);
+}
+@utility text-cardtitle {
+  font-family: var(--font-serif), serif;
+  font-size: var(--text-card);
+  line-height: var(--text-card--line-height);
+  letter-spacing: var(--text-card--letter-spacing);
+}
