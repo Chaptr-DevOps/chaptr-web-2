@@ -32,13 +32,20 @@ interface GroupsClientProps {
 
 type Modal = 'none' | 'join' | 'create'
 
-const PACES = ['relaxed', 'moderate', 'intense'] as const
+const PACES = ['relaxed', 'moderate', 'fast'] as const
+
+const PACE_DESCRIPTIONS = {
+  relaxed: '<1 book/month',
+  moderate: '1–2 books/month',
+  fast: '3+ books/month',
+}
 
 export function GroupsClient({ myGroups, publicGroups }: GroupsClientProps) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [modal, setModal] = useState<Modal>('none')
   const [search, setSearch] = useState('')
+  const [activeTab, setActiveTab] = useState<'my-groups' | 'discover'>('my-groups')
 
   // Join via code
   const [code, setCode] = useState('')
@@ -51,6 +58,12 @@ export function GroupsClient({ myGroups, publicGroups }: GroupsClientProps) {
   const [cPaid, setCPaid] = useState(false)
   const [cPrice, setCPrice] = useState('')
   const [createError, setCreateError] = useState('')
+
+  const filteredMyGroups = myGroups.filter(
+    (g) =>
+      g.name.toLowerCase().includes(search.toLowerCase()) ||
+      (g.bookTitle ?? '').toLowerCase().includes(search.toLowerCase()),
+  )
 
   const filteredPublic = publicGroups.filter(
     (g) =>
@@ -113,14 +126,62 @@ export function GroupsClient({ myGroups, publicGroups }: GroupsClientProps) {
 
   return (
     <>
-      <div className="space-y-8 px-5 md:px-8">
+      <div className="space-y-6 px-5 md:px-8">
+        {/* Tab Navigation */}
+        <div className="flex border-b border-[var(--border-main)] gap-6">
+          <button
+            onClick={() => {
+              setActiveTab('my-groups')
+              setSearch('')
+            }}
+            className={cn(
+              "pb-3 text-sm font-semibold transition-all relative flex items-center border-b-2 cursor-pointer",
+              activeTab === 'my-groups'
+                ? "text-primary border-primary"
+                : "text-[var(--text-secondary)] border-transparent hover:text-[var(--text-primary)]"
+            )}
+          >
+            My Groups
+            <span className={cn(
+              "ml-2 rounded-full px-2 py-0.5 text-xs font-medium",
+              activeTab === 'my-groups'
+                ? "bg-primary/10 text-primary"
+                : "bg-[var(--surface-elevated)] text-[var(--text-secondary)]"
+            )}>
+              {myGroups.length}
+            </span>
+          </button>
+          <button
+            onClick={() => {
+              setActiveTab('discover')
+              setSearch('')
+            }}
+            className={cn(
+              "pb-3 text-sm font-semibold transition-all relative flex items-center border-b-2 cursor-pointer",
+              activeTab === 'discover'
+                ? "text-primary border-primary"
+                : "text-[var(--text-secondary)] border-transparent hover:text-[var(--text-primary)]"
+            )}
+          >
+            Discover
+            <span className={cn(
+              "ml-2 rounded-full px-2 py-0.5 text-xs font-medium",
+              activeTab === 'discover'
+                ? "bg-primary/10 text-primary"
+                : "bg-[var(--surface-elevated)] text-[var(--text-secondary)]"
+            )}>
+              {publicGroups.length}
+            </span>
+          </button>
+        </div>
+
         {/* Action bar */}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <div className="relative flex-1">
             <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-tertiary)]" />
             <input
               type="text"
-              placeholder="Search public groups..."
+              placeholder={activeTab === 'my-groups' ? "Search my groups..." : "Search public groups..."}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full rounded-xl border border-[var(--border-main)] bg-[var(--surface)] py-2.5 pl-10 pr-4 text-sm text-[var(--text-primary)] focus:border-primary/50 focus:outline-none"
@@ -136,58 +197,75 @@ export function GroupsClient({ myGroups, publicGroups }: GroupsClientProps) {
           </div>
         </div>
 
-        {/* My Groups */}
-        {myGroups.length > 0 && (
-          <section>
-            <h2 className="mb-4 font-serif text-[22px] tracking-[-0.3px] text-[var(--text-primary)]">
-              My Groups
-            </h2>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {myGroups.map((g) => (
-                <GroupCard
-                  key={g.id}
-                  group={g}
-                  memberCount={g.memberCount}
-                  bookTitle={g.bookTitle}
-                />
-              ))}
-            </div>
+        {/* Tab Content */}
+        {activeTab === 'my-groups' ? (
+          <section className="pb-6">
+            {filteredMyGroups.length === 0 ? (
+              <Card className="flex flex-col items-center justify-center p-12 text-center border-dashed">
+                <Users className="h-8 w-8 text-[var(--text-tertiary)] mb-3" />
+                <h3 className="font-serif text-lg font-medium text-[var(--text-primary)] mb-1">
+                  {search ? 'No groups found' : "You haven't joined any groups"}
+                </h3>
+                <p className="text-sm text-[var(--text-secondary)] mb-5 max-w-xs">
+                  {search
+                    ? 'Try a different search term.'
+                    : 'Join a reading club to discuss books, track your reading progress, and more.'}
+                </p>
+                <div className="flex gap-3">
+                  {!search && (
+                    <Button size="sm" onClick={() => setActiveTab('discover')}>
+                      <Sparkles className="mr-1.5 h-4 w-4" /> Discover Groups
+                    </Button>
+                  )}
+                  <Button size="sm" variant="outline" onClick={() => setModal('create')}>
+                    <Plus className="mr-1.5 h-4 w-4" /> Create Group
+                  </Button>
+                </div>
+              </Card>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {filteredMyGroups.map((g) => (
+                  <GroupCard
+                    key={g.id}
+                    group={g}
+                    memberCount={g.memberCount}
+                    bookTitle={g.bookTitle}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+        ) : (
+          <section className="pb-6">
+            {filteredPublic.length === 0 ? (
+              <Card className="flex flex-col items-center justify-center p-12 text-center border-dashed">
+                <Users className="h-8 w-8 text-[var(--text-tertiary)] mb-3" />
+                <h3 className="font-serif text-lg font-medium text-[var(--text-primary)] mb-1">
+                  {search ? 'No groups found' : 'No public groups yet'}
+                </h3>
+                <p className="text-sm text-[var(--text-secondary)] mb-5 max-w-xs">
+                  {search
+                    ? 'Try a different search term.'
+                    : 'Be the first to create a public reading group.'}
+                </p>
+                <Button size="sm" onClick={() => setModal('create')}>
+                  <Plus className="mr-1.5 h-4 w-4" /> Create Group
+                </Button>
+              </Card>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {filteredPublic.map((g) => (
+                  <GroupCard
+                    key={g.id}
+                    group={g}
+                    memberCount={g.memberCount}
+                    bookTitle={g.bookTitle}
+                  />
+                ))}
+              </div>
+            )}
           </section>
         )}
-
-        {/* Discover */}
-        <section className="pb-6">
-          <h2 className="mb-4 font-serif text-[22px] tracking-[-0.3px] text-[var(--text-primary)]">
-            Discover
-          </h2>
-          {filteredPublic.length === 0 ? (
-            <Card className="flex flex-col items-center justify-center p-12 text-center border-dashed">
-              <Users className="h-8 w-8 text-[var(--text-tertiary)] mb-3" />
-              <h3 className="font-serif text-lg font-medium text-[var(--text-primary)] mb-1">
-                {search ? 'No groups found' : 'No public groups yet'}
-              </h3>
-              <p className="text-sm text-[var(--text-secondary)] mb-5 max-w-xs">
-                {search
-                  ? 'Try a different search term.'
-                  : 'Be the first to create a public reading group.'}
-              </p>
-              <Button size="sm" onClick={() => setModal('create')}>
-                <Plus className="mr-1.5 h-4 w-4" /> Create Group
-              </Button>
-            </Card>
-          ) : (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {filteredPublic.map((g) => (
-                <GroupCard
-                  key={g.id}
-                  group={g}
-                  memberCount={g.memberCount}
-                  bookTitle={g.bookTitle}
-                />
-              ))}
-            </div>
-          )}
-        </section>
       </div>
 
       {/* ── Modals ── */}
@@ -275,13 +353,25 @@ export function GroupsClient({ myGroups, publicGroups }: GroupsClientProps) {
                           type="button"
                           onClick={() => setCPace(p)}
                           className={cn(
-                            'flex-1 rounded-lg border py-2 text-sm font-medium capitalize transition-all',
+                            'flex-1 rounded-lg border py-2 px-3 transition-all',
                             cPace === p
                               ? 'border-primary bg-primary text-[var(--interactive-primary-foreground)]'
                               : 'border-[var(--border-main)] text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)]',
                           )}
                         >
-                          {p}
+                          <div className="text-sm font-medium capitalize">
+                            {p}
+                          </div>
+                          <div
+                            className={cn(
+                              'mt-0.5 text-xs',
+                              cPace === p
+                                ? 'text-[var(--interactive-primary-foreground)]/80'
+                                : 'text-[var(--text-tertiary)]'
+                            )}
+                          >
+                            {PACE_DESCRIPTIONS[p]}
+                          </div>
                         </button>
                       ))}
                     </div>

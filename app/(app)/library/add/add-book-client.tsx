@@ -9,7 +9,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card } from '@/components/ui/card'
 import { BookCover } from '@/components/book-cover'
-import { addBookToShelf } from '../actions'
+import { addBookToShelf, addBookToCustomShelf } from '../actions'
+import type { CustomShelf } from '@/lib/types'
 
 interface SearchHit {
   title: string
@@ -18,7 +19,7 @@ interface SearchHit {
   cover: string | null
 }
 
-export function AddBookClient() {
+export function AddBookClient({ initialShelves }: { initialShelves: CustomShelf[] }) {
   const router = useRouter()
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SearchHit[]>([])
@@ -26,6 +27,11 @@ export function AddBookClient() {
   const [showCustom, setShowCustom] = useState(false)
   const [isPending, startTransition] = useTransition()
   const [selectedShelf, setSelectedShelf] = useState('tbr')
+  const [selectedShelfIds, setSelectedShelfIds] = useState<string[]>([])
+
+  function toggleShelfSelection(id: string) {
+    setSelectedShelfIds((prev) => (prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]))
+  }
 
   // Custom Book state
   const [cTitle, setCTitle] = useState('')
@@ -75,6 +81,11 @@ export function AddBookClient() {
       if (res.error) {
         alert(res.error)
       } else {
+        if (selectedShelfIds.length > 0 && res.bookId) {
+          await Promise.all(
+            selectedShelfIds.map((shelfId) => addBookToCustomShelf(shelfId, res.bookId!))
+          )
+        }
         router.push(selectedShelf === 'reading' ? `/library/notes/${res.bookId}` : '/library')
         router.refresh()
       }
@@ -99,6 +110,11 @@ export function AddBookClient() {
       if (res.error) {
         alert(res.error)
       } else {
+        if (selectedShelfIds.length > 0 && res.bookId) {
+          await Promise.all(
+            selectedShelfIds.map((shelfId) => addBookToCustomShelf(shelfId, res.bookId!))
+          )
+        }
         router.push(selectedShelf === 'reading' ? `/library/notes/${res.bookId}` : '/library')
         router.refresh()
       }
@@ -139,6 +155,37 @@ export function AddBookClient() {
           ))}
         </div>
       </div>
+
+      {/* Optional: file this book under one or more custom collections too */}
+      {initialShelves.length > 0 && (
+        <div className="rounded-xl border border-[var(--border-main)] p-4 bg-[var(--surface)] space-y-3">
+          <div>
+            <label className="text-sm font-semibold text-[var(--text-primary)]">Add to Collections</label>
+            <p className="text-xs text-[var(--text-secondary)]">
+              Optional — also file this book under any of your collections.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {initialShelves.map((shelf) => {
+              const selected = selectedShelfIds.includes(shelf.id)
+              return (
+                <button
+                  key={shelf.id}
+                  type="button"
+                  onClick={() => toggleShelfSelection(shelf.id)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all border ${
+                    selected
+                      ? 'bg-primary border-primary text-[var(--interactive-primary-foreground)]'
+                      : 'bg-[var(--surface-elevated)] border-[var(--border-main)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                  }`}
+                >
+                  {shelf.name}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {!showCustom ? (
         <>

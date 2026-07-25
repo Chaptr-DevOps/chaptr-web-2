@@ -22,6 +22,8 @@ import { PaywallGate } from '@/components/paywall-gate'
 import { formatPrice } from '@/lib/stripe'
 import { buttonVariants } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { GroupTabs } from './group-tabs'
+import { getGroupAnnouncements, getGroupBookList } from './group-actions'
 
 export const dynamic = 'force-dynamic'
 
@@ -47,10 +49,11 @@ export default async function GroupDetailPage({ params }: PageProps) {
 
   // Is user a member?
   const { data: membership } = await supabase
-    .from('group_members')
+    .from('group_memberships')
     .select('role')
     .eq('group_id', groupId)
     .eq('user_id', profile.id)
+    .eq('is_active', true)
     .maybeSingle()
 
   const isMember = Boolean(membership)
@@ -70,16 +73,18 @@ export default async function GroupDetailPage({ params }: PageProps) {
 
   // Fetch members with profiles
   const { data: members } = await supabase
-    .from('group_members')
+    .from('group_memberships')
     .select('role, user:users(id, username, display_name, avatar_url, reading_streak)')
     .eq('group_id', groupId)
+    .eq('is_active', true)
     .limit(12)
 
   // Fetch member count
   const { count: memberCount } = await supabase
-    .from('group_members')
+    .from('group_memberships')
     .select('id', { count: 'exact', head: true })
     .eq('group_id', groupId)
+    .eq('is_active', true)
 
   // Fetch user's reading progress for current book
   const { data: myProgress } = group.current_book_id
@@ -97,6 +102,10 @@ export default async function GroupDetailPage({ params }: PageProps) {
     .eq('is_read', false)
 
   const currentBook = group.current_book as any
+
+  // Fetch announcements & booklist items
+  const { data: initialAnnouncements } = await getGroupAnnouncements(groupId)
+  const { data: initialBookList } = await getGroupBookList(groupId)
 
   return (
     <div className="pb-10">
@@ -197,6 +206,23 @@ export default async function GroupDetailPage({ params }: PageProps) {
               </Card>
             )}
 
+            {!locked && (
+              <div className="mt-6 border-t border-[var(--border-main)] pt-6">
+                <GroupTabs
+                  groupId={groupId}
+                  userId={profile.id}
+                  isAdmin={isAdmin}
+                  isOwner={isOwner}
+                  isMember={isMember}
+                  initialAnnouncements={initialAnnouncements ?? []}
+                  initialBookList={initialBookList ?? []}
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Right column: Channels & Members */}
+          <div className="space-y-6">
             {/* Channels */}
             <div>
               <h2 className="mb-3 font-serif text-[22px] tracking-[-0.3px] text-[var(--text-primary)]">
@@ -239,61 +265,61 @@ export default async function GroupDetailPage({ params }: PageProps) {
                 </div>
               )}
             </div>
-          </div>
 
-          {/* Right column: Members */}
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="font-serif text-[22px] tracking-[-0.3px] text-[var(--text-primary)]">
-                Members
-              </h2>
-              {(isOwner || isAdmin) && (
-                <Link
-                  href={`/groups/${groupId}/manage`}
-                  className="text-xs font-semibold text-primary hover:underline"
-                >
-                  Manage
-                </Link>
-              )}
-            </div>
+            {/* Members */}
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="font-serif text-[22px] tracking-[-0.3px] text-[var(--text-primary)]">
+                  Members
+                </h2>
+                {(isOwner || isAdmin) && (
+                  <Link
+                    href={`/groups/${groupId}/manage`}
+                    className="text-xs font-semibold text-primary hover:underline"
+                  >
+                    Manage
+                  </Link>
+                )}
+              </div>
 
-            <div className="overflow-hidden rounded-2xl border border-[var(--border-main)] bg-[var(--surface)]">
-              {(members ?? []).map((m: any, i: number) => {
-                const u = m.user
-                if (!u) return null
-                return (
-                  <div key={u.id}>
-                    {i > 0 && <div className="mx-4 h-px bg-[var(--border-main)]" />}
-                    <div className="flex items-center gap-3 px-4 py-3">
-                      <div className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary text-sm font-bold">
-                        {(u.display_name ?? u.username ?? '?')[0].toUpperCase()}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium text-[var(--text-primary)]">
-                          {u.display_name ?? u.username}
-                        </p>
-                        <p className="text-xs text-[var(--text-tertiary)]">@{u.username}</p>
-                      </div>
-                      <div className="flex flex-col items-end gap-1">
-                        {m.role === 'admin' && (
-                          <Badge variant="primary" className="text-[10px]">Admin</Badge>
-                        )}
-                        {u.reading_streak > 0 && (
-                          <span className="inline-flex items-center gap-0.5 text-[11px] text-[var(--text-tertiary)]">
-                            <Flame className="h-3 w-3 text-orange-400" />
-                            {u.reading_streak}
-                          </span>
-                        )}
+              <div className="overflow-hidden rounded-2xl border border-[var(--border-main)] bg-[var(--surface)]">
+                {(members ?? []).map((m: any, i: number) => {
+                  const u = m.user
+                  if (!u) return null
+                  return (
+                    <div key={u.id}>
+                      {i > 0 && <div className="mx-4 h-px bg-[var(--border-main)]" />}
+                      <div className="flex items-center gap-3 px-4 py-3">
+                        <div className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary text-sm font-bold">
+                          {(u.display_name ?? u.username ?? '?')[0].toUpperCase()}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-[var(--text-primary)]">
+                            {u.display_name ?? u.username}
+                          </p>
+                          <p className="text-xs text-[var(--text-tertiary)]">@{u.username}</p>
+                        </div>
+                        <div className="flex flex-col items-end gap-1">
+                          {m.role === 'admin' && (
+                            <Badge variant="primary" className="text-[10px]">Admin</Badge>
+                          )}
+                          {u.reading_streak > 0 && (
+                            <span className="inline-flex items-center gap-0.5 text-[11px] text-[var(--text-tertiary)]">
+                              <Flame className="h-3 w-3 text-orange-400" />
+                              {u.reading_streak}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
+                  )
+                })}
+                {(memberCount ?? 0) > 12 && (
+                  <div className="border-t border-[var(--border-main)] px-4 py-3 text-center text-xs text-[var(--text-tertiary)]">
+                    +{(memberCount ?? 0) - 12} more members
                   </div>
-                )
-              })}
-              {(memberCount ?? 0) > 12 && (
-                <div className="border-t border-[var(--border-main)] px-4 py-3 text-center text-xs text-[var(--text-tertiary)]">
-                  +{(memberCount ?? 0) - 12} more members
-                </div>
-              )}
+                )}
+              </div>
             </div>
 
             {/* Group meta */}

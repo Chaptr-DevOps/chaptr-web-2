@@ -5,6 +5,7 @@ import { getProfile } from '@/lib/queries'
 import { PageHeader } from '@/components/page-header'
 import { buttonVariants } from '@/components/ui/button'
 import { LibraryClient } from './library-client'
+import type { CustomShelf, ShelfBookWithBook } from '@/lib/types'
 
 export const dynamic = 'force-dynamic'
 
@@ -44,6 +45,40 @@ export default async function LibraryPage() {
 
   const items = (progressItems ?? []) as any[]
 
+  // Fetch the user's custom shelves (collections) with a book count each
+  const { data: shelvesData } = await supabase
+    .from('custom_shelves')
+    .select(`*, book_count:shelf_books(count)`)
+    .eq('user_id', profile?.id ?? '')
+    .order('created_at', { ascending: false })
+
+  const shelves: CustomShelf[] = (shelvesData ?? []).map((s: any) => ({
+    ...s,
+    book_count: s.book_count?.[0]?.count ?? 0,
+  }))
+
+  // Fetch every book on any of those shelves in one go, then group by shelf
+  const shelfIds = shelves.map((s) => s.id)
+  const { data: shelfBooksData } = shelfIds.length
+    ? await supabase
+        .from('shelf_books')
+        .select(`
+          id,
+          shelf_id,
+          book_id,
+          added_at,
+          book:books(id, title, author, cover_image_url)
+        `)
+        .in('shelf_id', shelfIds)
+        .order('added_at', { ascending: false })
+    : { data: [] as ShelfBookWithBook[] }
+
+  const shelfBooksByShelf: Record<string, ShelfBookWithBook[]> = {}
+  for (const sb of (shelfBooksData ?? []) as unknown as ShelfBookWithBook[]) {
+    if (!shelfBooksByShelf[sb.shelf_id]) shelfBooksByShelf[sb.shelf_id] = []
+    shelfBooksByShelf[sb.shelf_id].push(sb)
+  }
+
   return (
     <div className="pb-10">
       <PageHeader
@@ -56,7 +91,11 @@ export default async function LibraryPage() {
           </Link>
         }
       />
-      <LibraryClient initialItems={items} />
+      <LibraryClient
+        initialItems={items}
+        initialShelves={shelves}
+        initialShelfBooksByShelf={shelfBooksByShelf}
+      />
     </div>
   )
 }

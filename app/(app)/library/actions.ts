@@ -322,3 +322,178 @@ export async function deleteNote(noteId: string, bookId: string) {
   revalidatePath(`/library/notes/${bookId}`)
   return { success: true }
 }
+
+// ============================================================================
+// CUSTOM SHELVES (COLLECTIONS)
+// ============================================================================
+// Note: these are user-defined collections (e.g. "Favorites", "Book Club"),
+// distinct from the fixed TBR/Reading/Finished/DNF status shelves above.
+
+export async function createShelf(params: {
+  name: string
+  description?: string
+  isPublic?: boolean
+}) {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) return { error: 'Not authenticated' }
+
+  const name = params.name.trim()
+  if (!name) return { error: 'Shelf name is required' }
+
+  const { data, error } = await supabase
+    .from('custom_shelves')
+    .insert({
+      user_id: user.id,
+      name,
+      description: params.description?.trim() || null,
+      is_public: params.isPublic ?? false,
+    })
+    .select()
+    .single()
+
+  if (error) return { error: error.message }
+
+  revalidatePath('/library')
+  revalidatePath('/library/add')
+  return { success: true, shelf: { ...data, book_count: 0 } }
+}
+
+export async function updateShelf(
+  shelfId: string,
+  updates: { name?: string; description?: string | null; is_public?: boolean }
+) {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) return { error: 'Not authenticated' }
+
+  const payload: Record<string, any> = {}
+  if (updates.name !== undefined) {
+    const trimmed = updates.name.trim()
+    if (!trimmed) return { error: 'Shelf name is required' }
+    payload.name = trimmed
+  }
+  if (updates.description !== undefined) {
+    payload.description = updates.description?.trim() || null
+  }
+  if (updates.is_public !== undefined) {
+    payload.is_public = updates.is_public
+  }
+
+  const { error } = await supabase
+    .from('custom_shelves')
+    .update(payload)
+    .eq('id', shelfId)
+    .eq('user_id', user.id)
+
+  if (error) return { error: error.message }
+
+  revalidatePath('/library')
+  revalidatePath('/library/add')
+  return { success: true }
+}
+
+export async function deleteShelf(shelfId: string) {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) return { error: 'Not authenticated' }
+
+  // Clear membership rows first in case the DB doesn't cascade-delete them.
+  const { error: shelfBooksError } = await supabase
+    .from('shelf_books')
+    .delete()
+    .eq('shelf_id', shelfId)
+
+  if (shelfBooksError) return { error: shelfBooksError.message }
+
+  const { error } = await supabase
+    .from('custom_shelves')
+    .delete()
+    .eq('id', shelfId)
+    .eq('user_id', user.id)
+
+  if (error) return { error: error.message }
+
+  revalidatePath('/library')
+  revalidatePath('/library/add')
+  return { success: true }
+}
+
+export async function addBookToCustomShelf(shelfId: string, bookId: string) {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) return { error: 'Not authenticated' }
+
+  // Confirm the shelf actually belongs to this user before writing to it,
+  // since shelf_books itself has no user_id column to check against.
+  const { data: shelf } = await supabase
+    .from('custom_shelves')
+    .select('id')
+    .eq('id', shelfId)
+    .eq('user_id', user.id)
+    .maybeSingle()
+
+  if (!shelf) return { error: 'Shelf not found' }
+
+  const { data: existing } = await supabase
+    .from('shelf_books')
+    .select('id')
+    .eq('shelf_id', shelfId)
+    .eq('book_id', bookId)
+    .maybeSingle()
+
+  if (!existing) {
+    const { error } = await supabase.from('shelf_books').insert({
+      shelf_id: shelfId,
+      book_id: bookId,
+    })
+
+    if (error) return { error: error.message }
+  }
+
+  revalidatePath('/library')
+  revalidatePath('/library/add')
+  return { success: true }
+}
+
+export async function removeBookFromCustomShelf(shelfId: string, bookId: string) {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) return { error: 'Not authenticated' }
+
+  const { data: shelf } = await supabase
+    .from('custom_shelves')
+    .select('id')
+    .eq('id', shelfId)
+    .eq('user_id', user.id)
+    .maybeSingle()
+
+  if (!shelf) return { error: 'Shelf not found' }
+
+  const { error } = await supabase
+    .from('shelf_books')
+    .delete()
+    .eq('shelf_id', shelfId)
+    .eq('book_id', bookId)
+
+  if (error) return { error: error.message }
+
+  revalidatePath('/library')
+  revalidatePath('/library/add')
+  return { success: true }
+}

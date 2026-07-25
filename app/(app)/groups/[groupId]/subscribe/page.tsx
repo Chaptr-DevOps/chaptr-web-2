@@ -28,9 +28,10 @@ export default async function SubscribePage({ params }: PageProps) {
   const alreadySubscribed = await isSubscribedToGroup(groupId)
 
   const { count: memberCount } = await supabase
-    .from('group_members')
+    .from('group_memberships')
     .select('id', { count: 'exact', head: true })
     .eq('group_id', groupId)
+    .eq('is_active', true)
 
   return (
     <SubscribeClient

@@ -104,6 +104,7 @@ create table if not exists public.channel_messages (
   content text,
   chapter_number integer,
   is_spoiler_gated boolean default false,
+  parent_message_id uuid references public.channel_messages(id) on delete cascade,
   created_at timestamptz default now()
 );
 
@@ -129,12 +130,14 @@ create table if not exists public.group_books (
   unique (group_id, book_id)
 );
 
--- GROUP MEMBERS
-create table if not exists public.group_members (
+-- GROUP MEMBERSHIPS
+create table if not exists public.group_memberships (
   id uuid primary key default gen_random_uuid(),
   group_id uuid not null references public.reading_groups(id) on delete cascade,
   user_id uuid not null references public.users(id) on delete cascade,
   role text default 'member',
+  is_active boolean default true,
+  last_activity timestamptz default now(),
   created_at timestamptz default now(),
   unique (group_id, user_id)
 );
@@ -183,7 +186,7 @@ alter table public.group_channels enable row level security;
 alter table public.channel_messages enable row level security;
 alter table public.group_subscriptions enable row level security;
 alter table public.group_books enable row level security;
-alter table public.group_members enable row level security;
+alter table public.group_memberships enable row level security;
 alter table public.creator_payout_accounts enable row level security;
 alter table public.notifications enable row level security;
 alter table public.reports enable row level security;
@@ -204,7 +207,16 @@ create policy "books_insert_auth" on public.books for insert with check (auth.ui
 
 -- reading_groups: public groups visible to all; writes by creator
 drop policy if exists "groups_select" on public.reading_groups;
-create policy "groups_select" on public.reading_groups for select using (is_public or created_by = auth.uid());
+create policy "groups_select" on public.reading_groups for select using (
+  is_public
+  or created_by = auth.uid()
+  or exists (
+    select 1 from public.group_memberships
+    where group_memberships.group_id = reading_groups.id
+    and group_memberships.user_id = auth.uid()
+    and group_memberships.is_active = true
+  )
+);
 drop policy if exists "groups_insert_own" on public.reading_groups;
 create policy "groups_insert_own" on public.reading_groups for insert with check (created_by = auth.uid());
 drop policy if exists "groups_update_own" on public.reading_groups;
@@ -244,10 +256,10 @@ create policy "group_books_manage" on public.group_books for all
   using (exists (select 1 from public.reading_groups g where g.id = group_id and g.created_by = auth.uid()))
   with check (exists (select 1 from public.reading_groups g where g.id = group_id and g.created_by = auth.uid()));
 
-drop policy if exists "members_select_all" on public.group_members;
-create policy "members_select_all" on public.group_members for select using (true);
-drop policy if exists "members_own" on public.group_members;
-create policy "members_own" on public.group_members for all using (user_id = auth.uid()) with check (user_id = auth.uid());
+drop policy if exists "memberships_select_all" on public.group_memberships;
+create policy "memberships_select_all" on public.group_memberships for select using (true);
+drop policy if exists "memberships_own" on public.group_memberships;
+create policy "memberships_own" on public.group_memberships for all using (user_id = auth.uid()) with check (user_id = auth.uid());
 
 drop policy if exists "payout_own" on public.creator_payout_accounts;
 create policy "payout_own" on public.creator_payout_accounts for all using (user_id = auth.uid()) with check (user_id = auth.uid());
@@ -282,3 +294,27 @@ drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
+
+-- ============================================================================
+-- MESSAGE REACTIONS
+-- ============================================================================
+create table if not exists public.message_reactions (
+  id uuid primary key default gen_random_uuid(),
+  message_id uuid not null references public.channel_messages(id) on delete cascade,
+  user_id uuid not null references public.users(id) on delete cascade,
+  reaction_type text not null,
+  created_at timestamptz default now(),
+  unique (message_id, user_id, reaction_type)
+);
+
+alter table public.message_reactions enable row level security;
+
+drop policy if exists "reactions_select_all" on public.message_reactions;
+create policy "reactions_select_all" on public.message_reactions for select using (true);
+
+drop policy if exists "reactions_insert_own" on public.message_reactions;
+create policy "reactions_insert_own" on public.message_reactions for insert with check (user_id = auth.uid());
+
+drop policy if exists "reactions_delete_own" on public.message_reactions;
+create policy "reactions_delete_own" on public.message_reactions for delete using (user_id = auth.uid());
+

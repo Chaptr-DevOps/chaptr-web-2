@@ -28,7 +28,7 @@ import { BookCover } from '@/components/book-cover'
 import { updateGroup, createChannel, deleteChannel, kickMember } from '../../actions'
 import { cn } from '@/lib/utils'
 
-const PACES = ['relaxed', 'moderate', 'intense'] as const
+const PACES = ['relaxed', 'moderate', 'fast'] as const
 
 interface ManageClientProps {
   groupId: string

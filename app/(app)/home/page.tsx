@@ -28,12 +28,14 @@ export default async function HomePage() {
       supabase
         .from('reading_progress')
         .select('*')
+        .eq('user_id', profile?.id ?? '')
         .eq('status', 'reading')
         .order('created_at', { ascending: false })
         .limit(6),
       supabase
         .from('chapter_completions')
         .select('*')
+        .eq('user_id', profile?.id ?? '')
         .order('completed_at', { ascending: false })
         .limit(8),
       supabase

@@ -28,10 +28,11 @@ export default async function ManagePage({ params }: PageProps) {
   if (group.created_by !== profile.id) {
     // Check if admin role
     const { data: membership } = await supabase
-      .from('group_members')
+      .from('group_memberships')
       .select('role')
       .eq('group_id', groupId)
       .eq('user_id', profile.id)
+      .eq('is_active', true)
       .maybeSingle()
 
     if (membership?.role !== 'admin') redirect(`/groups/${groupId}`)
@@ -44,9 +45,10 @@ export default async function ManagePage({ params }: PageProps) {
     .order('created_at', { ascending: true })
 
   const { data: members } = await supabase
-    .from('group_members')
+    .from('group_memberships')
     .select('role, user:users(id, username, display_name)')
     .eq('group_id', groupId)
+    .eq('is_active', true)
 
   const { count: unread } = await supabase
     .from('notifications')

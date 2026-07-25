@@ -40,10 +40,12 @@ export async function createGroup(formData: {
   if (error) return { error: error.message }
 
   // Auto-join creator as admin
-  await supabase.from('group_members').insert({
+  await supabase.from('group_memberships').insert({
     group_id: group.id,
     user_id: user.id,
     role: 'admin',
+    is_active: true,
+    last_activity: new Date().toISOString(),
   })
 
   // Create default channels
@@ -75,10 +77,11 @@ export async function joinGroupWithCode(code: string) {
 
   // Check already a member
   const { data: existing } = await supabase
-    .from('group_members')
+    .from('group_memberships')
     .select('id')
     .eq('group_id', group.id)
     .eq('user_id', user.id)
+    .eq('is_active', true)
     .maybeSingle()
 
   if (existing) return { groupId: group.id, alreadyMember: true }
@@ -89,11 +92,16 @@ export async function joinGroupWithCode(code: string) {
   }
 
   // Join free group
-  const { error } = await supabase.from('group_members').insert({
-    group_id: group.id,
-    user_id: user.id,
-    role: 'member',
-  })
+  const { error } = await supabase.from('group_memberships').upsert(
+    {
+      group_id: group.id,
+      user_id: user.id,
+      role: 'member',
+      is_active: true,
+      last_activity: new Date().toISOString(),
+    },
+    { onConflict: 'group_id,user_id' }
+  )
 
   if (error) return { error: error.message }
 
@@ -111,8 +119,8 @@ export async function leaveGroup(groupId: string) {
   if (!user) return { error: 'Not authenticated' }
 
   const { error } = await supabase
-    .from('group_members')
-    .delete()
+    .from('group_memberships')
+    .update({ is_active: false })
     .eq('group_id', groupId)
     .eq('user_id', user.id)
 
@@ -204,6 +212,7 @@ export async function sendMessage(
   content: string,
   isSpoilerGated: boolean,
   chapterNumber: number | null,
+  parentMessageId: string | null = null,
 ) {
   const supabase = await createClient()
   const {
@@ -211,13 +220,19 @@ export async function sendMessage(
   } = await supabase.auth.getUser()
   if (!user) return { error: 'Not authenticated' }
 
-  const { error } = await supabase.from('channel_messages').insert({
+  const insertData: any = {
     channel_id: channelId,
     user_id: user.id,
     content: content.trim(),
     is_spoiler_gated: isSpoilerGated,
     chapter_number: chapterNumber,
-  })
+  }
+
+  if (parentMessageId) {
+    insertData.parent_message_id = parentMessageId
+  }
+
+  const { error } = await supabase.from('channel_messages').insert(insertData)
 
   if (error) return { error: error.message }
   return { success: true }
@@ -233,8 +248,8 @@ export async function kickMember(groupId: string, targetUserId: string) {
   if (!user) return { error: 'Not authenticated' }
 
   const { error } = await supabase
-    .from('group_members')
-    .delete()
+    .from('group_memberships')
+    .update({ is_active: false })
     .eq('group_id', groupId)
     .eq('user_id', targetUserId)
 
@@ -279,14 +294,16 @@ export async function startSubscribeCheckout(groupId: string) {
 
   if (subError) return { error: subError.message }
 
-  // Also join group_members
-  await supabase.from('group_members').upsert(
+  // Also join group_memberships
+  await supabase.from('group_memberships').upsert(
     {
       group_id: groupId,
       user_id: user.id,
       role: 'member',
+      is_active: true,
+      last_activity: new Date().toISOString(),
     },
-    { onConflict: 'group_id,user_id' },
+    { onConflict: 'group_id,user_id' }
   )
 
   revalidatePath(`/groups/${groupId}`)

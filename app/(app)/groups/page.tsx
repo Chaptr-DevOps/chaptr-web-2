@@ -1,14 +1,15 @@
 import { createClient } from '@/lib/supabase/server'
-import { getProfile } from '@/lib/queries'
 import { PageHeader } from '@/components/page-header'
 import { GroupsClient } from './groups-client'
-import type { ReadingGroup } from '@/lib/types'
 
 export const dynamic = 'force-dynamic'
 
 export default async function GroupsPage() {
   const supabase = await createClient()
-  const profile = await getProfile()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  const userId = user?.id ?? ''
 
   const { count: unread } = await supabase
     .from('notifications')
@@ -17,9 +18,10 @@ export default async function GroupsPage() {
 
   // Fetch groups the user is a member of
   const { data: memberRows } = await supabase
-    .from('group_members')
+    .from('group_memberships')
     .select('group_id')
-    .eq('user_id', profile?.id ?? '')
+    .eq('user_id', userId)
+    .eq('is_active', true)
 
   const myGroupIds = (memberRows ?? []).map((r) => r.group_id)
 
@@ -33,11 +35,16 @@ export default async function GroupsPage() {
     : { data: [] }
 
   // Fetch public groups not already joined
-  const { data: publicGroupsRaw } = await supabase
+  let publicQuery = supabase
     .from('reading_groups')
     .select('*, current_book:books(title)')
     .eq('is_public', true)
-    .not('id', 'in', myGroupIds.length ? `(${myGroupIds.join(',')})` : '(null)')
+
+  if (myGroupIds.length > 0) {
+    publicQuery = publicQuery.not('id', 'in', `(${myGroupIds.join(',')})`)
+  }
+
+  const { data: publicGroupsRaw } = await publicQuery
     .order('created_at', { ascending: false })
     .limit(30)
 
@@ -49,9 +56,10 @@ export default async function GroupsPage() {
 
   const { data: memberCounts } = allGroupIds.length
     ? await supabase
-        .from('group_members')
+        .from('group_memberships')
         .select('group_id')
         .in('group_id', allGroupIds)
+        .eq('is_active', true)
     : { data: [] }
 
   const countMap = new Map<string, number>()

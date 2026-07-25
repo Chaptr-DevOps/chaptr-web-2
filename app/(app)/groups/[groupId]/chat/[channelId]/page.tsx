@@ -18,10 +18,11 @@ export default async function ChatPage({ params }: PageProps) {
 
   // Verify membership
   const { data: membership } = await supabase
-    .from('group_members')
+    .from('group_memberships')
     .select('role')
     .eq('group_id', groupId)
     .eq('user_id', profile.id)
+    .eq('is_active', true)
     .maybeSingle()
 
   if (!membership) redirect(`/groups/${groupId}`)
@@ -29,7 +30,7 @@ export default async function ChatPage({ params }: PageProps) {
   // Fetch the group
   const { data: group } = await supabase
     .from('reading_groups')
-    .select('name, current_book_id')
+    .select('name, current_book_id, created_by')
     .eq('id', groupId)
     .maybeSingle()
 
@@ -67,7 +68,7 @@ export default async function ChatPage({ params }: PageProps) {
   // Fetch messages, chapter-gated logic applied server-side
   let messagesQuery = supabase
     .from('channel_messages')
-    .select('id, content, is_spoiler_gated, chapter_number, created_at, user_id')
+    .select('id, content, is_spoiler_gated, chapter_number, created_at, user_id, parent_message_id')
     .eq('channel_id', channelId)
     .order('created_at', { ascending: true })
     .limit(100)
@@ -79,21 +80,81 @@ export default async function ChatPage({ params }: PageProps) {
     )
   }
 
-  const { data: rawMessages } = await messagesQuery
+  let { data: rawMessages, error: queryError } = await messagesQuery
+
+  // Fallback: if query fails (likely due to missing parent_message_id column if migration hasn't been run yet)
+  if (queryError || !rawMessages) {
+    let fallbackQuery = supabase
+      .from('channel_messages')
+      .select('id, content, is_spoiler_gated, chapter_number, created_at, user_id')
+      .eq('channel_id', channelId)
+      .order('created_at', { ascending: true })
+      .limit(100)
+
+    if (channel.is_chapter_gated) {
+      fallbackQuery = fallbackQuery.or(
+        `chapter_number.is.null,chapter_number.lte.${myCurrentChapter}`,
+      )
+    }
+    const fallbackResult = await fallbackQuery
+    rawMessages = (fallbackResult.data ?? []).map((m) => ({
+      ...m,
+      parent_message_id: null,
+    }))
+  }
 
   // Fetch author profiles for all unique user_ids in messages
   const userIds = [...new Set((rawMessages ?? []).map((m) => m.user_id))]
   const { data: authors } = userIds.length
     ? await supabase
         .from('users')
-        .select('id, username, display_name')
+        .select('id, username, display_name, avatar_url')
         .in('id', userIds)
     : { data: [] }
 
+  // Fetch membership roles for these users in this group
+  const { data: memberships } = userIds.length
+    ? await supabase
+        .from('group_memberships')
+        .select('user_id, role')
+        .eq('group_id', groupId)
+        .in('user_id', userIds)
+    : { data: [] }
+
+  // Fetch reactions for these messages
+  const messageIds = (rawMessages ?? []).map((m) => m.id)
+  const { data: rawReactions } = messageIds.length
+    ? await supabase
+        .from('message_reactions')
+        .select('message_id, reaction_type, user_id')
+        .in('message_id', messageIds)
+    : { data: null } // using null or empty array safely
+
+  const reactionMap = new Map<string, Array<{ reaction_type: string; user_id: string }>>()
+  if (rawReactions) {
+    for (const r of rawReactions) {
+      if (!reactionMap.has(r.message_id)) {
+        reactionMap.set(r.message_id, [])
+      }
+      reactionMap.get(r.message_id)!.push({
+        reaction_type: r.reaction_type,
+        user_id: r.user_id,
+      })
+    }
+  }
+
+  const membershipMap = new Map((memberships ?? []).map((m) => [m.user_id, m.role]))
   const authorMap = new Map((authors ?? []).map((a) => [a.id, a]))
   const messages = (rawMessages ?? []).map((m) => ({
     ...m,
-    author: authorMap.get(m.user_id),
+    author: authorMap.get(m.user_id)
+      ? {
+          ...authorMap.get(m.user_id)!,
+          role: membershipMap.get(m.user_id) || 'member',
+          is_creator: group?.created_by === m.user_id,
+        }
+      : undefined,
+    reactions: reactionMap.get(m.id) || [],
   }))
 
   return (

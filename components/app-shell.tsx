@@ -45,10 +45,10 @@ export function AppShell({
   }
 
   return (
-    <div className="mx-auto flex min-h-svh w-full max-w-6xl">
+    <div className="flex min-h-svh w-full">
       {/* Desktop sidebar */}
-      <aside className="sticky top-0 hidden h-svh w-60 shrink-0 flex-col border-r border-[var(--border-main)] px-4 py-6 md:flex">
-        <Link href="/home" className="mb-8 flex items-center gap-2 px-2">
+      <aside className="sticky top-0 hidden h-svh w-fit shrink-0 flex-col border-r border-[var(--border-main)] px-4 py-6 md:flex">
+        <Link href="/home" className="mb-8 flex items-center gap-2 px-2 whitespace-nowrap">
           <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-[var(--interactive-primary-foreground)]">
             <BookOpen className="h-5 w-5" />
           </span>
@@ -60,7 +60,7 @@ export function AppShell({
               key={href}
               href={href}
               className={cn(
-                'flex items-center gap-3 rounded-xl px-3 py-2.5 text-[15px] font-medium transition-colors',
+                'flex items-center gap-3 rounded-xl px-3 py-2.5 text-[15px] font-medium transition-colors whitespace-nowrap',
                 isActive(href)
                   ? 'bg-primary/12 text-primary'
                   : 'text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)]',
@@ -77,7 +77,7 @@ export function AppShell({
             name={profile?.display_name ?? profile?.username}
             size={36}
           />
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0 flex-1 whitespace-nowrap">
             <p className="truncate text-sm font-medium text-[var(--text-primary)]">
               {profile?.display_name ?? 'Reader'}
             </p>
