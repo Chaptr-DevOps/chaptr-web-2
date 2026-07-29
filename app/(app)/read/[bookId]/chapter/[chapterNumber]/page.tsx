@@ -85,7 +85,13 @@ export default async function ChapterCompletionPage({ params, searchParams }: Pa
   }
 
   return (
+    // The key is load-bearing. The chapter picker navigates between chapters,
+    // which re-renders this Server Component with fresh initialNotes — but the
+    // client component sits at the same tree position, so React would preserve
+    // its instance and `useState(props.initialNotes)` would keep showing the
+    // PREVIOUS chapter's notes. Keying on the chapter forces a fresh instance.
     <ChapterCompletionClient
+      key={`${book.id}:${chapterNumber}`}
       bookId={book.id}
       bookTitle={book.title}
       chapterNumber={chapterNumber}
