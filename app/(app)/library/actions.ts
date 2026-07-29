@@ -2,8 +2,12 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
+import type { ShelfType } from '@/lib/types'
 
-export async function updateBookShelf(progressId: string, status: string) {
+// Put a book on a shelf, moving it off any other shelf. Keyed by book_id rather
+// than by a user_library row id, because a book can appear in the library UI via
+// reading_progress alone (the derived "Reading" tab) with no shelf row yet.
+export async function setBookShelf(bookId: string, shelfType: ShelfType) {
   const supabase = await createClient()
   const {
     data: { user },
@@ -11,33 +15,61 @@ export async function updateBookShelf(progressId: string, status: string) {
 
   if (!user) return { error: 'Not authenticated' }
 
-  // If status is 'finished', progress_percentage should be 100
-  const updateData: Record<string, any> = { status }
-  if (status === 'finished') {
-    updateData.progress_percentage = 100
+  const { data: existing } = await supabase
+    .from('user_library')
+    .select('id, shelf_type')
+    .eq('user_id', user.id)
+    .eq('book_id', bookId)
+
+  const rows = existing ?? []
+  const alreadyOnTarget = rows.some((r) => r.shelf_type === shelfType)
+  const staleIds = rows.filter((r) => r.shelf_type !== shelfType).map((r) => r.id)
+
+  // The UI treats shelves as single-select ("Change Shelf"), so moving clears
+  // the others even though the table would allow a book on several at once.
+  if (staleIds.length) {
+    const { error } = await supabase
+      .from('user_library')
+      .delete()
+      .in('id', staleIds)
+      .eq('user_id', user.id)
+    if (error) return { error: error.message }
   }
 
-  const { error } = await supabase
-    .from('reading_progress')
-    .update(updateData)
-    .eq('id', progressId)
-    .eq('user_id', user.id)
+  if (!alreadyOnTarget) {
+    const { error } = await supabase
+      .from('user_library')
+      .insert({ user_id: user.id, book_id: bookId, shelf_type: shelfType })
+    if (error) return { error: error.message }
+  }
 
-  if (error) return { error: error.message }
-
-  // If it's finished, let's increment the user's total completed books count
-  if (status === 'finished') {
-    const { data: profile } = await supabase
-      .from('users')
-      .select('total_books_completed')
-      .eq('id', user.id)
+  // Mirror completion onto reading_progress so Home and stats agree. Only counts
+  // the book once — when it was not already marked completed.
+  if (shelfType === 'completed') {
+    const { data: progress } = await supabase
+      .from('reading_progress')
+      .select('id, status')
+      .eq('user_id', user.id)
+      .eq('book_id', bookId)
       .maybeSingle()
 
-    const currentCount = profile?.total_books_completed ?? 0
-    await supabase
-      .from('users')
-      .update({ total_books_completed: currentCount + 1 })
-      .eq('id', user.id)
+    if (progress && progress.status !== 'completed') {
+      await supabase
+        .from('reading_progress')
+        .update({ status: 'completed', progress_percentage: 100 })
+        .eq('id', progress.id)
+
+      const { data: profile } = await supabase
+        .from('users')
+        .select('total_books_completed')
+        .eq('id', user.id)
+        .maybeSingle()
+
+      await supabase
+        .from('users')
+        .update({ total_books_completed: (profile?.total_books_completed ?? 0) + 1 })
+        .eq('id', user.id)
+    }
   }
 
   revalidatePath('/library')
@@ -45,7 +77,9 @@ export async function updateBookShelf(progressId: string, status: string) {
   return { success: true }
 }
 
-export async function removeBookFromLibrary(progressId: string) {
+// Takes the book off every shelf. Reading progress and notes are deliberately
+// left alone — they are separate records, and mobile behaves the same way.
+export async function removeBookFromLibrary(bookId: string) {
   const supabase = await createClient()
   const {
     data: { user },
@@ -54,9 +88,9 @@ export async function removeBookFromLibrary(progressId: string) {
   if (!user) return { error: 'Not authenticated' }
 
   const { error } = await supabase
-    .from('reading_progress')
+    .from('user_library')
     .delete()
-    .eq('id', progressId)
+    .eq('book_id', bookId)
     .eq('user_id', user.id)
 
   if (error) return { error: error.message }
@@ -74,7 +108,7 @@ export async function addBookToShelf(
     total_chapters?: number
     cover_image_url?: string
   },
-  status: string
+  shelfType: ShelfType
 ) {
   const supabase = await createClient()
   const {
@@ -112,33 +146,39 @@ export async function addBookToShelf(
     bookId = newBook.id
   }
 
-  // Check if user already has this book in progress
-  const { data: existingProgress } = await supabase
-    .from('reading_progress')
-    .select('id')
-    .eq('user_id', user.id)
-    .eq('book_id', bookId)
-    .maybeSingle()
-
-  if (existingProgress) {
-    // Update existing progress status
-    const { error: updateError } = await supabase
+  // 'reading' is a state, not a shelf: it means start tracking the book, and
+  // creates a reading_progress row instead of a user_library row. Every other
+  // target is a real shelf and creates no progress — a TBR book you have not
+  // opened has nothing to track, which is the point.
+  if (shelfType === 'reading') {
+    const { data: existingProgress } = await supabase
       .from('reading_progress')
-      .update({ status })
-      .eq('id', existingProgress.id)
+      .select('id')
+      .eq('user_id', user.id)
+      .eq('book_id', bookId)
+      .maybeSingle()
 
-    if (updateError) return { error: updateError.message }
+    if (!existingProgress) {
+      const { error: progressError } = await supabase.from('reading_progress').insert({
+        user_id: user.id,
+        book_id: bookId,
+        status: 'reading',
+        current_chapter: 1,
+        progress_percentage: 0,
+      })
+
+      if (progressError) return { error: progressError.message }
+    }
   } else {
-    // Insert progress
-    const { error: progressError } = await supabase.from('reading_progress').insert({
-      user_id: user.id,
-      book_id: bookId,
-      status,
-      current_chapter: 0,
-      progress_percentage: status === 'finished' ? 100 : 0,
-    })
+    // Unique on (user_id, book_id, shelf_type), so re-adding is a no-op.
+    const { error: libraryError } = await supabase
+      .from('user_library')
+      .upsert(
+        { user_id: user.id, book_id: bookId, shelf_type: shelfType },
+        { onConflict: 'user_id,book_id,shelf_type', ignoreDuplicates: true },
+      )
 
-    if (progressError) return { error: progressError.message }
+    if (libraryError) return { error: libraryError.message }
   }
 
   revalidatePath('/library')
@@ -150,7 +190,11 @@ export async function logChapterCompletion(
   progressId: string,
   bookId: string,
   chapterNumber: number,
-  reflectionText?: string
+  options?: {
+    groupId?: string | null
+    reflectionText?: string
+    clampProgress?: boolean
+  }
 ) {
   const supabase = await createClient()
   const {
@@ -163,36 +207,60 @@ export async function logChapterCompletion(
   const { error: completionError } = await supabase.from('chapter_completions').insert({
     user_id: user.id,
     book_id: bookId,
+    group_id: options?.groupId ?? null,
     chapter_number: chapterNumber,
-    reflection_text: reflectionText?.trim() || null,
+    reflection_text: options?.reflectionText?.trim() || null,
   })
 
   if (completionError) return { error: completionError.message }
 
-  // 2. Fetch the book to get total chapters
+  // When clamping, progress may only move forward. Without this, using the
+  // chapter picker to log an earlier chapter would drag the reader backwards.
+  let effectiveChapter = chapterNumber
+  if (options?.clampProgress) {
+    const { data: existing } = await supabase
+      .from('reading_progress')
+      .select('current_chapter, completed_chapters')
+      .eq('id', progressId)
+      .eq('user_id', user.id)
+      .maybeSingle()
+
+    effectiveChapter = Math.max(
+      chapterNumber,
+      existing?.current_chapter ?? 0,
+      existing?.completed_chapters ?? 0
+    )
+  }
+
+  // Fetch the book to get total chapters
   const { data: book } = await supabase
     .from('books')
     .select('total_chapters, total_pages')
     .eq('id', bookId)
     .single()
 
-  // Calculate percentage
   let progress_percentage = 0
   let isFinished = false
   if (book?.total_chapters) {
-    progress_percentage = Math.min(100, Math.max(0, (chapterNumber / book.total_chapters) * 100))
-    if (chapterNumber >= book.total_chapters) {
+    progress_percentage = Math.min(
+      100,
+      Math.max(0, (effectiveChapter / book.total_chapters) * 100)
+    )
+    if (effectiveChapter >= book.total_chapters) {
       isFinished = true
     }
   }
 
-  // 3. Update the reading progress
   const updatePayload: Record<string, any> = {
-    current_chapter: chapterNumber,
+    current_chapter: effectiveChapter,
     progress_percentage,
+    completed_chapters: effectiveChapter,
+    total_chapters: book?.total_chapters ?? null,
+    last_read_at: new Date().toISOString(),
   }
   if (isFinished) {
-    updatePayload.status = 'finished'
+    updatePayload.status = 'completed'
+    updatePayload.completed_at = new Date().toISOString()
   }
 
   const { error: progressError } = await supabase
@@ -255,7 +323,7 @@ export async function logChapterCompletion(
 
   revalidatePath('/library')
   revalidatePath('/home')
-  return { success: true }
+  return { success: true, isFinalChapter: isFinished, progressPercentage: progress_percentage }
 }
 
 export async function saveNote(note: {
