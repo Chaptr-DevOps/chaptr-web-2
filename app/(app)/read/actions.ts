@@ -108,13 +108,47 @@ export async function completeChapterWithNotes(params: {
   chapterNumber: number
   groupId?: string | null
   noteIds: string[]
-  noteContents: string[]
 }) {
   const supabase = await createClient()
   const {
     data: { user },
   } = await supabase.auth.getUser()
   if (!user) return { error: 'Not authenticated' }
+
+  // A caller-supplied groupId must not let someone tag a group they are not a
+  // member of — chapter_completions rows are readable by that group.
+  if (params.groupId) {
+    const { data: membership } = await supabase
+      .from('group_memberships')
+      .select('id')
+      .eq('group_id', params.groupId)
+      .eq('user_id', user.id)
+      .eq('is_active', true)
+      .maybeSingle()
+
+    if (!membership) return { error: 'You are not a member of this group' }
+  }
+
+  // Log the completion FIRST. If it fails, the notes stay tagged 'snippet' and
+  // nothing has been recorded — there is no transaction across these two calls.
+  //
+  // NOTE: reflectionText is deliberately NOT passed. chapter_completions has an
+  // RLS policy granting SELECT to every active member of the row's group, so
+  // anything in reflection_text on a group-scoped completion is visible to the
+  // whole group. Bullet notes are private (personal_notes is owner-only) and
+  // must never be copied there. Sharing is an explicit user action via the
+  // discussion modal, never a side effect of completing a chapter.
+  const result = await logChapterCompletion(
+    params.progressId,
+    params.bookId,
+    params.chapterNumber,
+    {
+      groupId: params.groupId ?? null,
+      clampProgress: true,
+    }
+  )
+
+  if ('error' in result) return { error: result.error }
 
   // Re-tag this chapter's snippets rather than merging and deleting them, so
   // revisiting the chapter still shows the individual bullets.
@@ -127,19 +161,6 @@ export async function completeChapterWithNotes(params: {
 
     if (tagError) return { error: tagError.message }
   }
-
-  const result = await logChapterCompletion(
-    params.progressId,
-    params.bookId,
-    params.chapterNumber,
-    {
-      groupId: params.groupId ?? null,
-      reflectionText: params.noteContents.join('\n\n'),
-      clampProgress: true,
-    }
-  )
-
-  if ('error' in result) return { error: result.error }
 
   revalidatePath('/home')
   revalidatePath('/library')
