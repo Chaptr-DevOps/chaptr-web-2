@@ -10,7 +10,14 @@
 
 ## Global Constraints
 
-- **This repo has no test suite.** Do not add one — it is out of scope and would be a large unrelated change. Every task is verified by `pnpm lint`, `pnpm build` (which typechecks), and the explicit manual browser checks listed in that task. Where a task says "Expected: PASS", it means the command exits 0 with no new errors.
+- **This repo has no test suite.** Do not add one — it is out of scope and would be a large unrelated change.
+- **`pnpm build` does NOT typecheck.** `next.config.mjs` sets `typescript.ignoreBuildErrors: true`, so the build compiles straight past type errors. **The real gate is `npx tsc --noEmit`.**
+- **The bar is "no type errors in the files this task touched", not "tsc is clean."** The working tree carries pre-existing type errors in unrelated files (`app/(app)/home/page.tsx`, `library-client.tsx`, `add-book-client.tsx`, and others). Those are not yours to fix. Verify with:
+  ```bash
+  npx tsc --noEmit 2>&1 | grep -E '<your task's file paths>' || echo "(clean)"
+  ```
+- Also run `pnpm lint` and the explicit manual browser checks listed in the task. Where a task says "Expected: PASS", it means no errors attributable to the files you changed.
+- **The working tree has ~49 pre-existing uncommitted files that are NOT yours.** `lib/types.ts`, `app/(app)/library/actions.ts`, `components/currently-reading/currently-reading-card.tsx` and others already carry unrelated in-progress work. Never run `git checkout --`, `git stash`, or `git restore` on any file. Only `git add` the exact paths your task's commit step names, and expect their diffs to contain changes you did not make — leave those alone.
 - **Design tokens only.** Never hardcode colors. Use `bg-background`, `bg-[var(--surface)]`, `bg-[var(--surface-elevated)]`, `text-[var(--text-primary)]`, `text-[var(--text-secondary)]`, `text-[var(--text-tertiary)]`, `border-[var(--border-main)]`, `text-[var(--error)]`, `bg-primary`. The page must be correct in light and dark themes.
 - **Fonts:** `font-serif` (Crimson Pro) for the chapter heading and book title; `font-sans` (Inter) for note text and UI.
 - **Server action shape:** every action starts by resolving the user with `supabase.auth.getUser()`, returns `{ error: string }` on failure, returns `{ success: true }` or a created id on success, and calls `revalidatePath(...)` for every affected route before returning.
@@ -350,8 +357,8 @@ export async function completeChapterWithNotes(params: {
 
 - [ ] **Step 7: Verify it compiles and lints**
 
-Run: `pnpm lint && pnpm build`
-Expected: PASS — exit 0, no new errors. If `pnpm build` reports a type error on `logChapterCompletion`'s return being a union, confirm the two existing callers (`app/(app)/home/actions.ts:8` and `app/(app)/library/notes/[bookId]/notes-client.tsx:101`) only read `.error`; both already guard with `if (res.error)`, which narrows correctly.
+Run: `pnpm lint` and `npx tsc --noEmit` (see Global Constraints — the bar is no type errors in the files THIS task touched; pre-existing errors elsewhere are not yours)
+Expected: PASS — no type errors in the files this task touched. If `tsc` reports an error on `logChapterCompletion`'s return being a union, confirm the two existing callers (`app/(app)/home/actions.ts:8` and `app/(app)/library/notes/[bookId]/notes-client.tsx:101`) only read `.error`; both already guard with `if (res.error)`, which narrows correctly.
 
 - [ ] **Step 8: Commit**
 
@@ -755,7 +762,7 @@ export default async function ChapterCompletionPage({ params, searchParams }: Pa
 
 - [ ] **Step 6: Verify it compiles and lints**
 
-Run: `pnpm lint && pnpm build`
+Run: `pnpm lint` and `npx tsc --noEmit` (see Global Constraints — the bar is no type errors in the files THIS task touched; pre-existing errors elsewhere are not yours)
 Expected: PASS.
 
 - [ ] **Step 7: Verify in the browser**
@@ -1132,7 +1139,7 @@ Keep the `export interface ChapterCompletionClientProps` declaration above the c
 
 - [ ] **Step 4: Verify it compiles and lints**
 
-Run: `pnpm lint && pnpm build`
+Run: `pnpm lint` and `npx tsc --noEmit` (see Global Constraints — the bar is no type errors in the files THIS task touched; pre-existing errors elsewhere are not yours)
 Expected: PASS.
 
 - [ ] **Step 5: Verify in the browser**
@@ -1349,7 +1356,7 @@ Replace the JSX below `<ChapterHeader ... />` (the `<div className="flex-1 overf
 
 - [ ] **Step 5: Verify it compiles and lints**
 
-Run: `pnpm lint && pnpm build`
+Run: `pnpm lint` and `npx tsc --noEmit` (see Global Constraints — the bar is no type errors in the files THIS task touched; pre-existing errors elsewhere are not yours)
 Expected: PASS.
 
 - [ ] **Step 6: Verify in the browser**
@@ -1698,7 +1705,7 @@ Then add this block just before the closing `</div>` of the component's root ele
 
 - [ ] **Step 5: Verify it compiles and lints**
 
-Run: `pnpm lint && pnpm build`
+Run: `pnpm lint` and `npx tsc --noEmit` (see Global Constraints — the bar is no type errors in the files THIS task touched; pre-existing errors elsewhere are not yours)
 Expected: PASS.
 
 - [ ] **Step 6: Verify in the browser**
@@ -1794,7 +1801,7 @@ Expected: only hits for `completeChapterWithNotes` in `app/(app)/read/`. No hits
 
 - [ ] **Step 5: Verify it compiles and lints**
 
-Run: `pnpm lint && pnpm build`
+Run: `pnpm lint` and `npx tsc --noEmit` (see Global Constraints — the bar is no type errors in the files THIS task touched; pre-existing errors elsewhere are not yours)
 Expected: PASS.
 
 - [ ] **Step 6: Verify the whole flow end to end**
