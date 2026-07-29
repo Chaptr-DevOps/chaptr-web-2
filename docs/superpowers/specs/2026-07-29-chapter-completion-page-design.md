@@ -161,8 +161,19 @@ Deletes, scoped by `.eq('user_id', user.id)`.
 1. Re-tags the listed notes to `note_type: 'chapter_completion'` (scoped by
    `user_id`).
 2. Delegates the completion record, progress update and streak bump to
-   `logChapterCompletion` (see below).
+   `logChapterCompletion` (see below) — **without** `reflectionText`, so no
+   note content ever reaches the group-readable completion row.
 3. `revalidatePath` for `/home`, `/library`, and the group page when scoped.
+
+Order matters: the completion is logged *before* the notes are re-tagged. If
+the completion fails, the notes stay `snippet` and nothing is recorded. The
+reverse failure is harmless, since the page loads a chapter's notes regardless
+of `note_type`.
+
+When `groupId` is supplied, membership is verified against `group_memberships`
+first. `group_id` on the completion row is legitimate progress attribution, but
+a caller-supplied id must not let someone tag a group they do not belong to —
+the same check the chat channel page already performs.
 
 Returns `{ success: true, isFinalChapter: boolean, progressPercentage: number }`
 so the client knows which modal to show and what to animate the bar toward.
@@ -185,10 +196,15 @@ logChapterCompletion(
 - `groupId` is written to `chapter_completions.group_id`. The function omits this
   column today, so group-attributed completions are being lost — the new flow
   passes it, and the column is nullable so existing callers are unaffected.
-- `reflectionText` populates `chapter_completions.reflection_text` with the
-  bullets joined by blank lines, matching what mobile records. The existing
-  signature already accepts a fourth positional `reflectionText` param that no
-  caller passes; it is folded into this options object.
+- `reflectionText` populates `chapter_completions.reflection_text`. **The
+  chapter page must never pass the user's notes here.** `chapter_completions`
+  has an RLS policy granting SELECT to every active member of the row's
+  `group_id`, so anything written to `reflection_text` on a group-scoped
+  completion is readable by that whole group. Bullet notes are private by
+  definition — they live in `personal_notes`, which is owner-only — and
+  copying them into the completion row would leak them. The parameter stays
+  for other callers; `completeChapterWithNotes` simply does not use it.
+  Sharing is always an explicit user action via the discussion modal.
 - `clampProgress` addresses the real hazard. The function currently sets
   `current_chapter` and `completed_chapters` to the chapter number
   unconditionally. That is safe today because the only reachable action is "+1",
