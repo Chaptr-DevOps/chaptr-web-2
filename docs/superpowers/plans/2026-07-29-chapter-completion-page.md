@@ -122,6 +122,20 @@ type in the other direction would invert the dependency.
 
 The old fourth positional parameter was `reflectionText?: string`. **One caller does pass it:** `app/(app)/library/notes/[bookId]/notes-client.tsx:105` passes a bare `reflection` string. Folding it into `options` breaks that call site, so you must update it in the same task — change the 4th argument from `reflection` to `{ reflectionText: reflection }`. Add that file to this task's commit.
 
+**That same caller needs a second change.** It checks the result with a bare
+truthiness test, `if (res.error)`. Once the return type is an explicit union, the
+success branch has no `error` key at all, so that access is a type error
+(`TS2339`). Change it to `in` narrowing, matching the pattern already used at
+`app/(app)/groups/[groupId]/manage/manage-client.tsx:114`:
+
+```tsx
+      if ('error' in res) {
+        alert(res.error)
+      } else {
+```
+
+The rest of that `else` block stays exactly as it is.
+
 - [ ] **Step 3: Write `group_id` and `reflection_text` on the completion row**
 
 Still in `logChapterCompletion`, replace the `chapter_completions` insert (the block starting `const { error: completionError } = await supabase.from('chapter_completions').insert({`) with:
