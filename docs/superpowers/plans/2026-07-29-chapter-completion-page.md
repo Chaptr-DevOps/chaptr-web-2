@@ -889,7 +889,13 @@ function NoteRow({
   const [draft, setDraft] = useState(note.content)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  useEffect(() => setDraft(note.content), [note.content])
+  // Resync the draft from props only while NOT editing. A failed edit rolls the
+  // note's content back, and that prop change must never overwrite keystrokes
+  // the user is typing in a reopened editor.
+  useEffect(() => {
+    if (editing) return
+    setDraft(note.content)
+  }, [note.content, editing])
 
   useEffect(() => {
     if (!editing) return
@@ -936,6 +942,7 @@ function NoteRow({
               setEditing(false)
             }
           }}
+          aria-label="Edit note"
           className="w-full resize-none bg-transparent font-sans text-[15px] leading-relaxed text-[var(--text-primary)] outline-none"
           rows={1}
         />
@@ -1146,26 +1153,43 @@ export function ChapterCompletionClient(props: ChapterCompletionClientProps) {
     )
   }
 
+  // Rollback is PER-NOTE, never a whole-array snapshot. Restoring a stale
+  // `previous` array would resurrect a note that a concurrent delete had
+  // successfully removed, or revert a sibling note's successful edit — the
+  // requests are independent and can fail in any order.
   async function handleEdit(id: string, content: string) {
     setNoteError(null)
-    const previous = notes
+    const prior = notes.find((n) => n.id === id)?.content
     setNotes((prev) => prev.map((n) => (n.id === id ? { ...n, content } : n)))
 
     const res = await updateChapterNote(id, content)
     if ('error' in res) {
-      setNotes(previous)
+      if (prior !== undefined) {
+        setNotes((prev) =>
+          prev.map((n) => (n.id === id ? { ...n, content: prior } : n))
+        )
+      }
       setNoteError(res.error)
     }
   }
 
   async function handleDelete(id: string) {
     setNoteError(null)
-    const previous = notes
+    const priorIndex = notes.findIndex((n) => n.id === id)
+    const prior = priorIndex === -1 ? undefined : notes[priorIndex]
     setNotes((prev) => prev.filter((n) => n.id !== id))
 
     const res = await deleteChapterNote(id)
     if ('error' in res) {
-      setNotes(previous)
+      if (prior) {
+        // Re-insert just this note, at its original position.
+        setNotes((prev) => {
+          if (prev.some((n) => n.id === id)) return prev
+          const next = [...prev]
+          next.splice(Math.min(priorIndex, next.length), 0, prior)
+          return next
+        })
+      }
       setNoteError(res.error)
     }
   }
