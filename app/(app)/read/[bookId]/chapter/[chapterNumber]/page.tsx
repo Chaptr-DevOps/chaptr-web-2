@@ -62,11 +62,21 @@ export default async function ChapterCompletionPage({ params, searchParams }: Pa
     .filter((n) => n.note_content)
     .map((n) => ({ id: n.id, content: n.note_content as string }))
 
-  const { data: completions } = await supabase
+  // Group-scoped deliberately: this array gates the Complete Chapter button, and
+  // the server's duplicate guard in completeChapterWithNotes is group-scoped too.
+  // Without the filter, logging a chapter solo would block logging it in a group
+  // (and vice versa) — a case the server correctly allows.
+  let completionsQuery = supabase
     .from('chapter_completions')
     .select('chapter_number')
     .eq('user_id', user.id)
     .eq('book_id', bookId)
+
+  completionsQuery = groupId
+    ? completionsQuery.eq('group_id', groupId)
+    : completionsQuery.is('group_id', null)
+
+  const { data: completions } = await completionsQuery
 
   const completedChapterNumbers = [
     ...new Set((completions ?? []).map((c) => c.chapter_number)),
