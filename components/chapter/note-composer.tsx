@@ -7,7 +7,7 @@ export function NoteComposer({
   onSubmit,
   error,
 }: {
-  onSubmit: (content: string) => void
+  onSubmit: (content: string) => Promise<boolean>
   error: string | null
 }) {
   const [value, setValue] = useState('')
@@ -20,15 +20,25 @@ export function NoteComposer({
     el.style.height = `${Math.min(el.scrollHeight, 160)}px`
   }
 
-  function submit() {
+  async function submit() {
     const trimmed = value.trim()
     if (!trimmed) return
-    onSubmit(trimmed)
     setValue('')
     requestAnimationFrame(() => {
       resize()
       textareaRef.current?.focus()
     })
+
+    const ok = await onSubmit(trimmed)
+    if (!ok) {
+      // Put the text back so the reader can retry. Losing a captured thought is
+      // the worst failure this page can have.
+      setValue(trimmed)
+      requestAnimationFrame(() => {
+        resize()
+        textareaRef.current?.focus()
+      })
+    }
   }
 
   return (
@@ -37,7 +47,7 @@ export function NoteComposer({
         <div className="flex items-start gap-3 py-2.5">
           <span
             aria-hidden
-            className="mt-2 h-2 w-2 shrink-0 -translate-x-[calc(0.25rem+0.5px)] rounded-full border border-[var(--border-main)] bg-background"
+            className="mt-2 h-2 w-2 shrink-0 -translate-x-[calc(1rem+0.25rem+0.5px)] rounded-full border border-[var(--border-main)] bg-background"
           />
           <textarea
             ref={textareaRef}

@@ -61,9 +61,11 @@ export function ChapterHeader({
         </div>
 
         <div className="flex flex-1 flex-col items-end">
-          <span className="mb-1 text-xs text-[var(--text-secondary)] tabular-nums">
-            {fromPercent}% → {toPercent}%
-          </span>
+          {totalChapters > 0 && (
+            <span className="mb-1 whitespace-nowrap text-xs text-[var(--text-secondary)] tabular-nums">
+              {fromPercent}% → {toPercent}%
+            </span>
+          )}
           <div className="h-2 w-16 overflow-hidden rounded-full bg-[var(--border-main)]">
             <div
               className="h-full rounded-full transition-[width] duration-700 ease-out"

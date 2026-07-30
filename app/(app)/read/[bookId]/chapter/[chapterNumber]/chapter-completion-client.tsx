@@ -30,6 +30,21 @@ export interface ChapterCompletionClientProps {
   initialNotes: ChapterNote[]
 }
 
+/**
+ * Server actions REJECT on transport failure (dropped connection, aborted
+ * request) rather than resolving to { error }. Without this wrapper a rejection
+ * skips both branches of the caller's `if ('error' in res)` check and leaves
+ * optimistic state stuck forever — a pending note that never resolves, or a
+ * spinner that never stops.
+ */
+async function runAction<T>(fn: () => Promise<T>): Promise<T | { error: string }> {
+  try {
+    return await fn()
+  } catch {
+    return { error: 'Something went wrong. Check your connection and try again.' }
+  }
+}
+
 export function ChapterCompletionClient(props: ChapterCompletionClientProps) {
   const { bookId, bookTitle, chapterNumber, totalChapters, groupId, groupColor } = props
 
@@ -44,12 +59,12 @@ export function ChapterCompletionClient(props: ChapterCompletionClientProps) {
     : 0
 
   const [completed, setCompleted] = useState(false)
-  const [isFinalChapter, setIsFinalChapter] = useState(false)
   const [showConfetti, setShowConfetti] = useState(false)
   const [completing, setCompleting] = useState(false)
   const [completeError, setCompleteError] = useState<string | null>(null)
   const [animatedPercent, setAnimatedPercent] = useState(fromPercent)
   const [modal, setModal] = useState<'none' | 'post' | 'book' | 'discussion'>('none')
+  const [pendingModal, setPendingModal] = useState<'post' | 'book' | null>(null)
 
   const savedNotes = notes.filter((n) => !n.pending)
   const hasPendingNote = notes.some((n) => n.pending)
@@ -57,7 +72,9 @@ export function ChapterCompletionClient(props: ChapterCompletionClientProps) {
   // noteIds snapshot cannot include an id the server has not issued yet, so that
   // note stays note_type 'snippet' forever and is never associated with this
   // completion. Block until every note has landed.
-  const canComplete = savedNotes.length > 0 && !hasPendingNote && !completing
+  const alreadyLogged = props.completedChapterNumbers.includes(chapterNumber)
+  const canComplete =
+    savedNotes.length > 0 && !hasPendingNote && !completing && !alreadyLogged
 
   // Frozen at completion time. `savedNotes` recomputes on every render, so
   // displaying its live length would inflate the count if a note resolved late.
@@ -65,24 +82,28 @@ export function ChapterCompletionClient(props: ChapterCompletionClientProps) {
 
   // Why the button is disabled, or null when it is enabled. Wired to the button
   // via aria-describedby so the reason is available to assistive tech.
-  const completeHint = hasPendingNote
-    ? 'Saving your note…'
-    : savedNotes.length === 0
-      ? 'Capture a thought to complete this chapter'
-      : null
+  const completeHint = alreadyLogged
+    ? 'You already logged this chapter — your notes above are still editable'
+    : hasPendingNote
+      ? 'Saving your note…'
+      : savedNotes.length === 0
+        ? 'Capture a thought to complete this chapter'
+        : null
 
   async function handleComplete() {
     if (!canComplete) return
     setCompleteError(null)
     setCompleting(true)
 
-    const res = await completeChapterWithNotes({
-      progressId: props.progressId,
-      bookId,
-      chapterNumber,
-      groupId,
-      noteIds: savedNotes.map((n) => n.id),
-    })
+    const res = await runAction(() =>
+      completeChapterWithNotes({
+        progressId: props.progressId,
+        bookId,
+        chapterNumber,
+        groupId,
+        noteIds: savedNotes.map((n) => n.id),
+      })
+    )
 
     setCompleting(false)
 
@@ -92,10 +113,9 @@ export function ChapterCompletionClient(props: ChapterCompletionClientProps) {
     }
 
     setCompletedNoteCount(savedNotes.length)
-    setIsFinalChapter(res.isFinalChapter)
     setCompleted(true)
     setShowConfetti(true)
-    setModal(res.isFinalChapter ? 'book' : 'post')
+    setPendingModal(res.isFinalChapter ? 'book' : 'post')
     // The progress bar is already mounted in the header, so setting the width
     // here transitions via its `transition-[width]` class.
     setAnimatedPercent(Math.round(res.progressPercentage))
@@ -107,22 +127,35 @@ export function ChapterCompletionClient(props: ChapterCompletionClientProps) {
     return () => window.clearTimeout(timer)
   }, [showConfetti])
 
-  async function handleAdd(content: string) {
+  // Let the success state and confetti land before the modal covers them.
+  useEffect(() => {
+    if (!pendingModal) return
+    const timer = window.setTimeout(() => {
+      setModal(pendingModal)
+      setPendingModal(null)
+    }, 900)
+    return () => window.clearTimeout(timer)
+  }, [pendingModal])
+
+  async function handleAdd(content: string): Promise<boolean> {
     setNoteError(null)
-    const tempId = `temp-${Date.now()}`
+    const tempId = `temp-${crypto.randomUUID()}`
     setNotes((prev) => [...prev, { id: tempId, content, pending: true }])
 
-    const res = await addChapterNote({ bookId, chapterNumber, content, groupId })
+    const res = await runAction(() =>
+      addChapterNote({ bookId, chapterNumber, content, groupId })
+    )
 
     if ('error' in res) {
       setNotes((prev) => prev.filter((n) => n.id !== tempId))
       setNoteError(res.error)
-      return
+      return false
     }
 
     setNotes((prev) =>
       prev.map((n) => (n.id === tempId ? { id: res.id, content } : n))
     )
+    return true
   }
 
   // Rollback is PER-NOTE, never a whole-array snapshot. Restoring a stale
@@ -134,7 +167,7 @@ export function ChapterCompletionClient(props: ChapterCompletionClientProps) {
     const prior = notes.find((n) => n.id === id)?.content
     setNotes((prev) => prev.map((n) => (n.id === id ? { ...n, content } : n)))
 
-    const res = await updateChapterNote(id, content)
+    const res = await runAction(() => updateChapterNote(id, content))
     if ('error' in res) {
       if (prior !== undefined) {
         setNotes((prev) =>
@@ -151,7 +184,7 @@ export function ChapterCompletionClient(props: ChapterCompletionClientProps) {
     const prior = priorIndex === -1 ? undefined : notes[priorIndex]
     setNotes((prev) => prev.filter((n) => n.id !== id))
 
-    const res = await deleteChapterNote(id)
+    const res = await runAction(() => deleteChapterNote(id))
     if ('error' in res) {
       if (prior) {
         // Re-insert just this note, at its original position.
@@ -235,7 +268,7 @@ export function ChapterCompletionClient(props: ChapterCompletionClientProps) {
         open={modal === 'post'}
         onClose={() => setModal('none')}
         chapterNumber={chapterNumber}
-        noteCount={savedNotes.length}
+        noteCount={completedNoteCount}
         bookId={bookId}
         groupId={groupId}
         groupName={props.groupName}

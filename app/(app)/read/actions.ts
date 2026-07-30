@@ -169,7 +169,13 @@ export async function completeChapterWithNotes(params: {
       .in('id', params.noteIds)
       .eq('user_id', user.id)
 
-    if (tagError) return { error: tagError.message }
+    // Non-fatal on purpose. The completion row and progress update have already
+    // landed, and the page loads a chapter's notes regardless of note_type — so
+    // the reader loses nothing. Returning an error here would invite a retry
+    // that inserts a SECOND chapter_completions row and double-counts the streak.
+    if (tagError) {
+      console.error('Failed to re-tag chapter notes:', tagError)
+    }
   }
 
   revalidatePath('/home')

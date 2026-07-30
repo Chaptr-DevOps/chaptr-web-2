@@ -51,7 +51,7 @@ function NoteRow({
     <li className="group relative flex gap-3 py-2.5">
       <span
         aria-hidden
-        className={`mt-2 h-2 w-2 shrink-0 -translate-x-[calc(0.25rem+0.5px)] rounded-full ${
+        className={`mt-2 h-2 w-2 shrink-0 -translate-x-[calc(1rem+0.25rem+0.5px)] rounded-full ${
           note.pending ? 'bg-[var(--text-tertiary)]' : 'bg-primary'
         }`}
       />
@@ -120,7 +120,7 @@ export function NoteList({
         <div className="flex gap-3 py-2.5">
           <span
             aria-hidden
-            className="mt-2 h-2 w-2 shrink-0 -translate-x-[calc(0.25rem+0.5px)] rounded-full border border-[var(--border-main)]"
+            className="mt-2 h-2 w-2 shrink-0 -translate-x-[calc(1rem+0.25rem+0.5px)] rounded-full border border-[var(--border-main)]"
           />
           <div>
             <p className="font-sans text-[15px] font-medium text-[var(--text-primary)]">
