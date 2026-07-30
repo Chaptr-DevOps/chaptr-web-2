@@ -1823,7 +1823,7 @@ In `components/currently-reading/currently-reading-card.tsx`, replace the `<butt
 
 - [ ] **Step 2: Delete the now-dead handler and import**
 
-In the same file, delete the entire `handleCompleteChapter` function (around lines 86-95). Then change the action import on line 11 from:
+In the same file, delete the entire `handleCompleteChapter` function (around lines 86-95). Note it will already have been converted to `'error' in res` narrowing during Task 3's fix cascade — you are deleting it regardless, so its exact current shape does not matter. Then change the action import on line 11 from:
 
 ```tsx
 import { completeChapter, shelveBook } from '@/app/(app)/home/actions'
