@@ -139,6 +139,27 @@ export async function completeChapterWithNotes(params: {
     if (!membership) return { error: 'You are not a member of this group' }
   }
 
+  // Idempotency. The client disables the button for an already-logged chapter,
+  // but that state is captured at page load — a stale tab or a direct action
+  // call must not be able to insert a second row. chapter_completions has no
+  // unique constraint, and profile stats count rows to award badges, so a
+  // duplicate inflates the reader's chapter count and can award badges they
+  // have not earned.
+  let existingQuery = supabase
+    .from('chapter_completions')
+    .select('id')
+    .eq('user_id', user.id)
+    .eq('book_id', params.bookId)
+    .eq('chapter_number', params.chapterNumber)
+
+  existingQuery = params.groupId
+    ? existingQuery.eq('group_id', params.groupId)
+    : existingQuery.is('group_id', null)
+
+  const { data: existing } = await existingQuery.maybeSingle()
+
+  if (existing) return { error: 'You already logged this chapter' }
+
   // Log the completion FIRST. If it fails, the notes stay tagged 'snippet' and
   // nothing has been recorded — there is no transaction across these two calls.
   //
