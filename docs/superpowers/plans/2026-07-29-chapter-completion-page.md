@@ -1330,9 +1330,10 @@ Both tokens above are verified to exist in `app/globals.css` for light, dark and
 
 - [ ] **Step 2: Add completion state and the handler**
 
-In `chapter-completion-client.tsx`, add to the imports:
+In `chapter-completion-client.tsx`, add to the imports — note `useEffect` joins the existing `useState` import, since the confetti timer needs cleanup:
 
 ```tsx
+import { useEffect, useState } from 'react'
 import { CheckCircle2, Loader2 } from 'lucide-react'
 import { completeChapterWithNotes } from '@/app/(app)/read/actions'
 import { ConfettiBurst } from '@/components/chapter/confetti-burst'
@@ -1349,7 +1350,24 @@ Then, inside the component after the `noteError` state, add:
   const [animatedPercent, setAnimatedPercent] = useState(fromPercent)
 
   const savedNotes = notes.filter((n) => !n.pending)
-  const canComplete = savedNotes.length > 0 && !completing
+  const hasPendingNote = notes.some((n) => n.pending)
+  // Completing while a note is still saving would permanently mistag it: the
+  // noteIds snapshot cannot include an id the server has not issued yet, so that
+  // note stays note_type 'snippet' forever and is never associated with this
+  // completion. Block until every note has landed.
+  const canComplete = savedNotes.length > 0 && !hasPendingNote && !completing
+
+  // Frozen at completion time. `savedNotes` recomputes on every render, so
+  // displaying its live length would inflate the count if a note resolved late.
+  const [completedNoteCount, setCompletedNoteCount] = useState(0)
+
+  // Why the button is disabled, or null when it is enabled. Wired to the button
+  // via aria-describedby so the reason is available to assistive tech.
+  const completeHint = hasPendingNote
+    ? 'Saving your note…'
+    : savedNotes.length === 0
+      ? 'Capture a thought to complete this chapter'
+      : null
 
   async function handleComplete() {
     if (!canComplete) return
@@ -1371,13 +1389,23 @@ Then, inside the component after the `noteError` state, add:
       return
     }
 
+    setCompletedNoteCount(savedNotes.length)
     setIsFinalChapter(res.isFinalChapter)
     setCompleted(true)
     setShowConfetti(true)
-    window.setTimeout(() => setShowConfetti(false), 2500)
-    // Let the bar animate to the value the server actually recorded.
-    requestAnimationFrame(() => setAnimatedPercent(Math.round(res.progressPercentage)))
+    // The progress bar is already mounted in the header, so setting the width
+    // here transitions via its `transition-[width]` class.
+    setAnimatedPercent(Math.round(res.progressPercentage))
   }
+
+  // Clear the confetti on a timer that is cancelled if this component unmounts
+  // first — the chapter picker navigates, and the component is keyed on chapter,
+  // so it really does unmount mid-timer.
+  useEffect(() => {
+    if (!showConfetti) return
+    const timer = window.setTimeout(() => setShowConfetti(false), 2500)
+    return () => window.clearTimeout(timer)
+  }, [showConfetti])
 ```
 
 Note `animatedPercent` must be declared *after* `fromPercent`, which is already computed above the handlers.
@@ -1406,7 +1434,7 @@ Replace the JSX below `<ChapterHeader ... />` (the `<div className="flex-1 overf
             Chapter Complete!
           </h2>
           <p className="mt-1 text-sm text-[var(--text-secondary)]">
-            {savedNotes.length} note{savedNotes.length === 1 ? '' : 's'} saved
+            {completedNoteCount} note{completedNoteCount === 1 ? '' : 's'} saved
           </p>
         </div>
       ) : (
@@ -1426,15 +1454,19 @@ Replace the JSX below `<ChapterHeader ... />` (the `<div className="flex-1 overf
               type="button"
               onClick={handleComplete}
               disabled={!canComplete}
+              aria-describedby={completeHint ? 'complete-hint' : undefined}
               className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-4 text-[15px] font-semibold text-primary-foreground shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {completing && <Loader2 className="h-4 w-4 animate-spin" />}
               {completing ? 'Saving...' : 'Complete Chapter'}
             </button>
 
-            {savedNotes.length === 0 && (
-              <p className="mt-2 text-center text-xs text-[var(--text-tertiary)]">
-                Capture a thought to complete this chapter
+            {completeHint && (
+              <p
+                id="complete-hint"
+                className="mt-2 text-center text-xs text-[var(--text-tertiary)]"
+              >
+                {completeHint}
               </p>
             )}
           </div>
