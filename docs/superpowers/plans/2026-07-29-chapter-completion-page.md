@@ -1503,6 +1503,7 @@ git commit -m "Add chapter completion flow with notes gate and success state"
 ### Task 5: Post-completion and book-completion modals
 
 **Files:**
+- Create: `components/chapter/use-modal-dismiss.ts`
 - Create: `components/chapter/post-completion-modal.tsx`
 - Create: `components/chapter/book-completion-modal.tsx`
 - Modify: `components/discussions/create-discussion-modal.tsx:13-36`
@@ -1547,7 +1548,48 @@ Then change the `content` state initializer from `useState('')` to:
 
 Every existing caller omits the prop and is unaffected.
 
-- [ ] **Step 2: Create the post-completion modal**
+- [ ] **Step 2: Create the shared modal-behaviour hook**
+
+Both modals need Escape-to-close and focus moved into the dialog on open. `components/chapter/chapter-picker.tsx` already establishes the Escape pattern in this feature; extract it once rather than duplicating the effect in two files.
+
+Create `components/chapter/use-modal-dismiss.ts`:
+
+```ts
+'use client'
+
+import { useEffect, useRef } from 'react'
+
+/**
+ * Escape-to-close plus focus-into-dialog for the chapter page's modals.
+ * Mirrors the Escape handling already used by chapter-picker.tsx.
+ *
+ * Call this ABOVE any `if (!open) return null` early return — hooks must run
+ * unconditionally. It self-guards on `open`, so that is safe.
+ */
+export function useModalDismiss(open: boolean, onClose: () => void) {
+  const dialogRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [open, onClose])
+
+  useEffect(() => {
+    if (!open) return
+    // Move focus into the dialog so assistive tech announces entry, and so Tab
+    // starts inside the modal rather than in the page behind the overlay.
+    dialogRef.current?.focus()
+  }, [open])
+
+  return dialogRef
+}
+```
+
+- [ ] **Step 3: Create the post-completion modal**
 
 Create `components/chapter/post-completion-modal.tsx`:
 
@@ -1557,6 +1599,7 @@ Create `components/chapter/post-completion-modal.tsx`:
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { BookOpen, MessageCircle, MessageSquare, X } from 'lucide-react'
+import { useModalDismiss } from './use-modal-dismiss'
 
 export function PostCompletionModal({
   open,
@@ -1578,6 +1621,7 @@ export function PostCompletionModal({
   onShare: () => void
 }) {
   const router = useRouter()
+  const dialogRef = useModalDismiss(open, onClose)
 
   if (!open) return null
 
@@ -1589,7 +1633,11 @@ export function PostCompletionModal({
       aria-modal="true"
       aria-label="Chapter complete"
     >
-      <div className="w-full max-w-md rounded-2xl border border-[var(--border-main)] bg-[var(--surface)] p-6 shadow-2xl">
+      <div
+        ref={dialogRef}
+        tabIndex={-1}
+        className="w-full max-w-md rounded-2xl border border-[var(--border-main)] bg-[var(--surface)] p-6 shadow-2xl outline-none"
+      >
         <div className="mb-5 flex items-start justify-between gap-3">
           <div>
             <h2 className="font-serif text-xl font-bold text-[var(--text-primary)]">
@@ -1672,7 +1720,7 @@ export function PostCompletionModal({
 }
 ```
 
-- [ ] **Step 3: Create the book-completion modal**
+- [ ] **Step 4: Create the book-completion modal**
 
 Create `components/chapter/book-completion-modal.tsx`:
 
@@ -1682,6 +1730,7 @@ Create `components/chapter/book-completion-modal.tsx`:
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { MessageCircle, MessageSquare, Sparkles } from 'lucide-react'
+import { useModalDismiss } from './use-modal-dismiss'
 
 export function BookCompletionModal({
   open,
@@ -1699,6 +1748,7 @@ export function BookCompletionModal({
   onShare: () => void
 }) {
   const router = useRouter()
+  const dialogRef = useModalDismiss(open, onClose)
 
   if (!open) return null
 
@@ -1710,7 +1760,11 @@ export function BookCompletionModal({
       aria-modal="true"
       aria-label="Book complete"
     >
-      <div className="w-full max-w-md rounded-2xl border border-[var(--border-main)] bg-[var(--surface)] p-6 text-center shadow-2xl">
+      <div
+        ref={dialogRef}
+        tabIndex={-1}
+        className="w-full max-w-md rounded-2xl border border-[var(--border-main)] bg-[var(--surface)] p-6 text-center shadow-2xl outline-none"
+      >
         <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-[var(--surface-elevated)]">
           <Sparkles className="h-8 w-8 text-[var(--success)]" />
         </div>
@@ -1765,7 +1819,7 @@ export function BookCompletionModal({
 }
 ```
 
-- [ ] **Step 4: Wire the modals into the orchestrator**
+- [ ] **Step 5: Wire the modals into the orchestrator**
 
 In `chapter-completion-client.tsx`, add to the imports:
 
@@ -1810,25 +1864,34 @@ Then add this block just before the closing `</div>` of the component's root ele
         onShare={() => setModal('discussion')}
       />
 
-      <CreateDiscussionModal
-        open={modal === 'discussion'}
-        onClose={() => setModal('none')}
-        bookId={bookId}
-        currentChapter={chapterNumber}
-        groupId={groupId}
-        groupName={props.groupName}
-        initialContent={savedNotes.map((n) => n.content).join('\n\n')}
-      />
+      {/* Mounted CONDITIONALLY, not just toggled via `open`. CreateDiscussionModal
+          seeds its content with `useState(initialContent ?? '')`, and a useState
+          initializer runs only on mount. If the component stayed mounted from the
+          page's first render, it would seed from an empty note list and the
+          textarea would open blank forever — and any text typed then cancelled
+          would persist into the next open. Conditional mounting gives a fresh
+          instance, correctly seeded, every time. */}
+      {modal === 'discussion' && (
+        <CreateDiscussionModal
+          open
+          onClose={() => setModal('none')}
+          bookId={bookId}
+          currentChapter={chapterNumber}
+          groupId={groupId}
+          groupName={props.groupName}
+          initialContent={savedNotes.map((n) => n.content).join('\n\n')}
+        />
+      )}
 ```
 
 `isFinalChapter` from Task 4 is now consumed: `handleComplete` sets it, and it is what the `setModal` line above branches on. Note the modal state is separate from `completed` on purpose — closing a modal must leave the success state visible underneath rather than reverting the page.
 
-- [ ] **Step 5: Verify it compiles and lints**
+- [ ] **Step 6: Verify it typechecks**
 
 Run: `npx tsc --noEmit` (see Global Constraints — the bar is no type errors in the files THIS task touched; pre-existing errors elsewhere are not yours)
 Expected: PASS.
 
-- [ ] **Step 6: Verify in the browser**
+- [ ] **Step 7: Verify in the browser**
 
 1. Complete a non-final chapter with two notes. The post-completion modal appears over the success state.
 2. "Share to discussion" swaps to the discussion modal, **pre-filled** with both notes separated by a blank line.
@@ -1840,7 +1903,7 @@ Expected: PASS.
 8. Complete the **final** chapter of a book: the book-completion modal appears instead, and `/library` shows the book as completed.
 9. Both modals are legible in dark mode.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add components/chapter components/discussions "app/(app)/read"
