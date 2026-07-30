@@ -8,7 +8,7 @@ import { BookCover } from '@/components/book-cover'
 import { Avatar } from '@/components/ui/avatar'
 import { Card } from '@/components/ui/card'
 import type { Book, ReadingProgress } from '@/lib/types'
-import { completeChapter, shelveBook } from '@/app/(app)/home/actions'
+import { shelveBook } from '@/app/(app)/home/actions'
 import { SetPaceModal } from './set-pace-modal'
 import { RecapModal } from './recap-modal'
 import { UpdateChaptersModal } from './update-chapters-modal'
@@ -82,17 +82,6 @@ export function CurrentlyReadingCard({ data }: { data: CurrentlyReadingCardData 
   const goalPosition = totalChapters ? Math.min(100, (goalChapter / totalChapters) * 100) : 0
   const isGoalMerged = deadlines.length > 0 && completedChapters >= goalChapter
   const isAvgMerged = meanCompletedChapters != null && completedChapters === meanCompletedChapters
-
-  function handleCompleteChapter() {
-    startTransition(async () => {
-      const res = await completeChapter(progress.id, progress.book_id, completedChapters + 1)
-      if ('error' in res) {
-        alert(res.error)
-        return
-      }
-      router.refresh()
-    })
-  }
 
   function handleShelve() {
     if (!confirm(`Are you sure you want to shelve "${book.title}"? You can find it later in your Library.`)) {
@@ -322,18 +311,18 @@ export function CurrentlyReadingCard({ data }: { data: CurrentlyReadingCardData 
 
         {/* Complete chapter + actions */}
         <div className="mt-4 border-t border-[var(--border-main)] pt-4">
-          <button
-            type="button"
-            disabled={isPending}
-            onClick={handleCompleteChapter}
-            className="flex w-full items-center justify-center gap-2 rounded-2xl border border-[var(--border-main)] bg-[var(--background)] py-4 shadow-sm transition-colors hover:bg-[var(--surface-elevated)] disabled:opacity-60"
+          <Link
+            href={`/read/${book.id}/chapter/${completedChapters + 1}${
+              progress.group_id ? `?group=${progress.group_id}` : ''
+            }`}
+            className="flex w-full items-center justify-center gap-2 rounded-2xl border border-[var(--border-main)] bg-[var(--background)] py-4 shadow-sm transition-colors hover:bg-[var(--surface-elevated)]"
           >
             <span className="text-[15px] font-semibold text-[var(--text-primary)]">Complete Chapter</span>
             <span className="relative flex h-7 w-[22px] items-start justify-center rounded-t-sm bg-[var(--error)] pt-1">
               <Bookmark className="pointer-events-none absolute -bottom-1.5 h-3 w-3 fill-[var(--error)] text-[var(--error)]" />
               <span className="text-[11px] font-bold text-white">{completedChapters + 1}</span>
             </span>
-          </button>
+          </Link>
 
           <div className="mt-3 flex items-center justify-center">
             <Link
