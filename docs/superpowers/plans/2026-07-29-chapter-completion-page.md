@@ -108,8 +108,17 @@ export async function logChapterCompletion(
     reflectionText?: string
     clampProgress?: boolean
   }
-) {
+): Promise<
+  { error: string } | { success: true; isFinalChapter: boolean; progressPercentage: number }
+> {
 ```
+
+The explicit return annotation is required for the same reason as the `read/actions.ts`
+actions: without it, TypeScript back-fills each branch with the other's keys as
+optional, so `completeChapterWithNotes` cannot return `result.error` (it infers
+`string | undefined`). Annotate it inline rather than importing `ActionResult`
+from `read/actions.ts` — that file already imports *from* this one, so sharing a
+type in the other direction would invert the dependency.
 
 The old fourth positional parameter was `reflectionText?: string`. **One caller does pass it:** `app/(app)/library/notes/[bookId]/notes-client.tsx:105` passes a bare `reflection` string. Folding it into `options` breaks that call site, so you must update it in the same task — change the 4th argument from `reflection` to `{ reflectionText: reflection }`. Add that file to this task's commit.
 
