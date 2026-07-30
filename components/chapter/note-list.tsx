@@ -19,7 +19,13 @@ function NoteRow({
   const [draft, setDraft] = useState(note.content)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  useEffect(() => setDraft(note.content), [note.content])
+  // Resync the draft from props only while NOT editing. A failed edit rolls the
+  // note's content back, and that prop change must never overwrite keystrokes
+  // the user is typing in a reopened editor.
+  useEffect(() => {
+    if (editing) return
+    setDraft(note.content)
+  }, [note.content, editing])
 
   useEffect(() => {
     if (!editing) return
@@ -66,6 +72,7 @@ function NoteRow({
               setEditing(false)
             }
           }}
+          aria-label="Edit note"
           className="w-full resize-none bg-transparent font-sans text-[15px] leading-relaxed text-[var(--text-primary)] outline-none"
           rows={1}
         />
