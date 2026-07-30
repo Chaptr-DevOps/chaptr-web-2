@@ -6,6 +6,9 @@ import { ChapterHeader } from '@/components/chapter/chapter-header'
 import { NoteList } from '@/components/chapter/note-list'
 import { NoteComposer } from '@/components/chapter/note-composer'
 import { ConfettiBurst } from '@/components/chapter/confetti-burst'
+import { PostCompletionModal } from '@/components/chapter/post-completion-modal'
+import { BookCompletionModal } from '@/components/chapter/book-completion-modal'
+import { CreateDiscussionModal } from '@/components/discussions/create-discussion-modal'
 import type { ChapterNote } from '@/components/chapter/types'
 import {
   addChapterNote,
@@ -46,6 +49,7 @@ export function ChapterCompletionClient(props: ChapterCompletionClientProps) {
   const [completing, setCompleting] = useState(false)
   const [completeError, setCompleteError] = useState<string | null>(null)
   const [animatedPercent, setAnimatedPercent] = useState(fromPercent)
+  const [modal, setModal] = useState<'none' | 'post' | 'book' | 'discussion'>('none')
 
   const savedNotes = notes.filter((n) => !n.pending)
   const hasPendingNote = notes.some((n) => n.pending)
@@ -91,6 +95,7 @@ export function ChapterCompletionClient(props: ChapterCompletionClientProps) {
     setIsFinalChapter(res.isFinalChapter)
     setCompleted(true)
     setShowConfetti(true)
+    setModal(res.isFinalChapter ? 'book' : 'post')
     // The progress bar is already mounted in the header, so setting the width
     // here transitions via its `transition-[width]` class.
     setAnimatedPercent(Math.round(res.progressPercentage))
@@ -225,6 +230,36 @@ export function ChapterCompletionClient(props: ChapterCompletionClientProps) {
           </div>
         </>
       )}
+
+      <PostCompletionModal
+        open={modal === 'post'}
+        onClose={() => setModal('none')}
+        chapterNumber={chapterNumber}
+        noteCount={savedNotes.length}
+        bookId={bookId}
+        groupId={groupId}
+        groupName={props.groupName}
+        onShare={() => setModal('discussion')}
+      />
+
+      <BookCompletionModal
+        open={modal === 'book'}
+        onClose={() => setModal('none')}
+        bookTitle={bookTitle}
+        bookId={bookId}
+        groupId={groupId}
+        onShare={() => setModal('discussion')}
+      />
+
+      <CreateDiscussionModal
+        open={modal === 'discussion'}
+        onClose={() => setModal('none')}
+        bookId={bookId}
+        currentChapter={chapterNumber}
+        groupId={groupId}
+        groupName={props.groupName}
+        initialContent={savedNotes.map((n) => n.content).join('\n\n')}
+      />
     </div>
   )
 }
