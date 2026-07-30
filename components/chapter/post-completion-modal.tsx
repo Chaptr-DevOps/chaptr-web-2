@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { BookOpen, MessageCircle, MessageSquare, X } from 'lucide-react'
+import { useModalDismiss } from './use-modal-dismiss'
 
 export function PostCompletionModal({
   open,
@@ -24,6 +25,7 @@ export function PostCompletionModal({
   onShare: () => void
 }) {
   const router = useRouter()
+  const dialogRef = useModalDismiss(open, onClose)
 
   if (!open) return null
 
@@ -35,7 +37,11 @@ export function PostCompletionModal({
       aria-modal="true"
       aria-label="Chapter complete"
     >
-      <div className="w-full max-w-md rounded-2xl border border-[var(--border-main)] bg-[var(--surface)] p-6 shadow-2xl">
+      <div
+        ref={dialogRef}
+        tabIndex={-1}
+        className="w-full max-w-md rounded-2xl border border-[var(--border-main)] bg-[var(--surface)] p-6 shadow-2xl outline-none"
+      >
         <div className="mb-5 flex items-start justify-between gap-3">
           <div>
             <h2 className="font-serif text-xl font-bold text-[var(--text-primary)]">

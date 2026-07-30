@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { MessageCircle, MessageSquare, Sparkles } from 'lucide-react'
+import { useModalDismiss } from './use-modal-dismiss'
 
 export function BookCompletionModal({
   open,
@@ -20,6 +21,7 @@ export function BookCompletionModal({
   onShare: () => void
 }) {
   const router = useRouter()
+  const dialogRef = useModalDismiss(open, onClose)
 
   if (!open) return null
 
@@ -31,7 +33,11 @@ export function BookCompletionModal({
       aria-modal="true"
       aria-label="Book complete"
     >
-      <div className="w-full max-w-md rounded-2xl border border-[var(--border-main)] bg-[var(--surface)] p-6 text-center shadow-2xl">
+      <div
+        ref={dialogRef}
+        tabIndex={-1}
+        className="w-full max-w-md rounded-2xl border border-[var(--border-main)] bg-[var(--surface)] p-6 text-center shadow-2xl outline-none"
+      >
         <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-[var(--surface-elevated)]">
           <Sparkles className="h-8 w-8 text-[var(--success)]" />
         </div>

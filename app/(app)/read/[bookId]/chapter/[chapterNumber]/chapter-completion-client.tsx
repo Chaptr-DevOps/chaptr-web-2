@@ -251,15 +251,24 @@ export function ChapterCompletionClient(props: ChapterCompletionClientProps) {
         onShare={() => setModal('discussion')}
       />
 
-      <CreateDiscussionModal
-        open={modal === 'discussion'}
-        onClose={() => setModal('none')}
-        bookId={bookId}
-        currentChapter={chapterNumber}
-        groupId={groupId}
-        groupName={props.groupName}
-        initialContent={savedNotes.map((n) => n.content).join('\n\n')}
-      />
+      {/* Mounted CONDITIONALLY, not just toggled via `open`. CreateDiscussionModal
+          seeds its content with `useState(initialContent ?? '')`, and a useState
+          initializer runs only on mount. If the component stayed mounted from the
+          page's first render, it would seed from an empty note list and the
+          textarea would open blank forever — and any text typed then cancelled
+          would persist into the next open. Conditional mounting gives a fresh
+          instance, correctly seeded, every time. */}
+      {modal === 'discussion' && (
+        <CreateDiscussionModal
+          open
+          onClose={() => setModal('none')}
+          bookId={bookId}
+          currentChapter={chapterNumber}
+          groupId={groupId}
+          groupName={props.groupName}
+          initialContent={savedNotes.map((n) => n.content).join('\n\n')}
+        />
+      )}
     </div>
   )
 }
