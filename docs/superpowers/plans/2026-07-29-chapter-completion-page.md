@@ -1271,7 +1271,10 @@ Create `components/chapter/confetti-burst.tsx`. This is pure CSS — no animatio
 const PIECES = Array.from({ length: 24 }, (_, i) => ({
   left: `${(i * 4 + 4) % 100}%`,
   delay: `${(i % 8) * 60}ms`,
-  color: ['var(--success)', 'var(--primary)', 'var(--warning)', 'var(--error)'][i % 4],
+  // NOTE: the raw token is --interactive-primary. There is no --primary custom
+  // property; `bg-primary` is a Tailwind alias mapped in @theme inline, so
+  // `var(--primary)` would resolve to nothing and this piece would be invisible.
+  color: ['var(--success)', 'var(--interactive-primary)', 'var(--warning)', 'var(--error)'][i % 4],
   size: i % 3 === 0 ? 10 : 12,
 }))
 
@@ -1323,7 +1326,7 @@ export function ConfettiBurst({ show }: { show: boolean }) {
 }
 ```
 
-If `--warning` and `--primary` are not defined as raw custom properties in `app/globals.css`, substitute `var(--success-strong)` and `var(--error-strong)` respectively — check with `grep -n -- "--warning:\|--primary:" app/globals.css` before writing the file.
+Both tokens above are verified to exist in `app/globals.css` for light, dark and `prefers-color-scheme` — `--warning` at lines 156/231/302 and `--interactive-primary` at 137/214/285. No substitution needed.
 
 - [ ] **Step 2: Add completion state and the handler**
 
