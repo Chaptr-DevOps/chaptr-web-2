@@ -26,6 +26,7 @@
 - **Every mutation is scoped by `.eq('user_id', user.id)`** in addition to the row id.
 - `scripts/001_chaptr_schema.sql` is the source of truth for column names. It is documentation — never run it.
 - Commit after every task, using the exact commit message given in the task.
+- **Never write `res.error ?? null` or cast to silence a narrowing complaint.** The actions in `app/(app)/read/actions.ts` carry explicit `ActionResult` return annotations precisely so `if ('error' in res)` narrows `res.error` to `string`. If narrowing ever fails, the annotation is missing or wrong — fix that, and report it; do not paper over it at the call site.
 
 ## File Structure
 
@@ -206,6 +207,16 @@ import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { logChapterCompletion } from '../library/actions'
 
+/**
+ * Every action below carries an EXPLICIT return-type annotation, and that is
+ * load-bearing. Without one, TypeScript infers each return branch separately and
+ * back-fills the other branch's keys as optional — so at the call site
+ * `if ('error' in res)` fails to narrow and `res.error` comes out
+ * `string | undefined`. Callers then need `res.error ?? null` band-aids. With the
+ * annotation, `in` narrowing works and callers can use `res.error` directly.
+ */
+type ActionResult<T = unknown> = { error: string } | ({ success: true } & T)
+
 /** Looks up the reading_progress row id for a (user, book, group) triple. */
 async function findProgressId(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -230,7 +241,7 @@ export async function addChapterNote(params: {
   chapterNumber: number
   content: string
   groupId?: string | null
-}) {
+}): Promise<ActionResult<{ id: string; createdAt: string }>> {
   const supabase = await createClient()
   const {
     data: { user },
@@ -267,7 +278,7 @@ export async function addChapterNote(params: {
   return { success: true as const, id: data.id, createdAt: data.created_at }
 }
 
-export async function updateChapterNote(id: string, content: string) {
+export async function updateChapterNote(id: string, content: string): Promise<ActionResult> {
   const supabase = await createClient()
   const {
     data: { user },
@@ -287,7 +298,7 @@ export async function updateChapterNote(id: string, content: string) {
   return { success: true as const }
 }
 
-export async function deleteChapterNote(id: string) {
+export async function deleteChapterNote(id: string): Promise<ActionResult> {
   const supabase = await createClient()
   const {
     data: { user },
@@ -310,7 +321,7 @@ export async function completeChapterWithNotes(params: {
   chapterNumber: number
   groupId?: string | null
   noteIds: string[]
-}) {
+}): Promise<ActionResult<{ isFinalChapter: boolean; progressPercentage: number }>> {
   const supabase = await createClient()
   const {
     data: { user },
