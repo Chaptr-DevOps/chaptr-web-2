@@ -195,7 +195,9 @@ export async function logChapterCompletion(
     reflectionText?: string
     clampProgress?: boolean
   }
-) {
+): Promise<
+  { error: string } | { success: true; isFinalChapter: boolean; progressPercentage: number }
+> {
   const supabase = await createClient()
   const {
     data: { user },

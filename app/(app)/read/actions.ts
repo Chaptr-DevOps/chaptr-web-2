@@ -4,6 +4,16 @@ import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { logChapterCompletion } from '../library/actions'
 
+/**
+ * Every action below carries an EXPLICIT return-type annotation, and that is
+ * load-bearing. Without one, TypeScript infers each return branch separately and
+ * back-fills the other branch's keys as optional — so at the call site
+ * `if ('error' in res)` fails to narrow and `res.error` comes out
+ * `string | undefined`. Callers then need `res.error ?? null` band-aids. With the
+ * annotation, `in` narrowing works and callers can use `res.error` directly.
+ */
+type ActionResult<T = unknown> = { error: string } | ({ success: true } & T)
+
 /** Looks up the reading_progress row id for a (user, book, group) triple. */
 async function findProgressId(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -28,7 +38,7 @@ export async function addChapterNote(params: {
   chapterNumber: number
   content: string
   groupId?: string | null
-}) {
+}): Promise<ActionResult<{ id: string; createdAt: string }>> {
   const supabase = await createClient()
   const {
     data: { user },
@@ -65,7 +75,7 @@ export async function addChapterNote(params: {
   return { success: true as const, id: data.id, createdAt: data.created_at }
 }
 
-export async function updateChapterNote(id: string, content: string) {
+export async function updateChapterNote(id: string, content: string): Promise<ActionResult> {
   const supabase = await createClient()
   const {
     data: { user },
@@ -85,7 +95,7 @@ export async function updateChapterNote(id: string, content: string) {
   return { success: true as const }
 }
 
-export async function deleteChapterNote(id: string) {
+export async function deleteChapterNote(id: string): Promise<ActionResult> {
   const supabase = await createClient()
   const {
     data: { user },
@@ -108,7 +118,7 @@ export async function completeChapterWithNotes(params: {
   chapterNumber: number
   groupId?: string | null
   noteIds: string[]
-}) {
+}): Promise<ActionResult<{ isFinalChapter: boolean; progressPercentage: number }>> {
   const supabase = await createClient()
   const {
     data: { user },

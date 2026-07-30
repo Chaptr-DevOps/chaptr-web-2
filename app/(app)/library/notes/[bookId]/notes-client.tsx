@@ -105,7 +105,7 @@ export function NotesClient({
         { reflectionText: reflection }
       )
 
-      if (res.error) {
+      if ('error' in res) {
         alert(res.error)
       } else {
         // Award XP and show celebration

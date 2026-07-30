@@ -46,7 +46,7 @@ export function ChapterCompletionClient(props: ChapterCompletionClientProps) {
 
     if ('error' in res) {
       setNotes((prev) => prev.filter((n) => n.id !== tempId))
-      setNoteError(res.error ?? null)
+      setNoteError(res.error)
       return
     }
 
@@ -63,7 +63,7 @@ export function ChapterCompletionClient(props: ChapterCompletionClientProps) {
     const res = await updateChapterNote(id, content)
     if ('error' in res) {
       setNotes(previous)
-      setNoteError(res.error ?? null)
+      setNoteError(res.error)
     }
   }
 
@@ -75,7 +75,7 @@ export function ChapterCompletionClient(props: ChapterCompletionClientProps) {
     const res = await deleteChapterNote(id)
     if ('error' in res) {
       setNotes(previous)
-      setNoteError(res.error ?? null)
+      setNoteError(res.error)
     }
   }
 
