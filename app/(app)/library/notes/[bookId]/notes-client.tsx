@@ -28,8 +28,9 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
-import { logChapterCompletion, saveNote, deleteNote, updateBookShelf } from '../../actions'
-import { SHELF_TABS } from '@/lib/types'
+import { logChapterCompletion, saveNote, deleteNote, setBookShelf } from '../../actions'
+import { SHELF_OPTIONS } from '@/lib/types'
+import type { ShelfType } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
 interface NotesClientProps {
@@ -47,6 +48,8 @@ interface NotesClientProps {
     progress_percentage: number
     status: string
   } | null
+  // The shelf this book is on, from user_library. Separate from progress.
+  libraryItem: { id: string; shelf_type: ShelfType } | null
   completions: Array<{
     id: string
     chapter_number: number
@@ -63,7 +66,13 @@ interface NotesClientProps {
   }>
 }
 
-export function NotesClient({ book, progress: initialProgress, completions, notes }: NotesClientProps) {
+export function NotesClient({
+  book,
+  progress: initialProgress,
+  libraryItem,
+  completions,
+  notes,
+}: NotesClientProps) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [activeTab, setActiveTab] = useState<'log' | 'notes'>('log')
@@ -93,10 +102,10 @@ export function NotesClient({ book, progress: initialProgress, completions, note
         initialProgress.id,
         book.id,
         chapterToLog,
-        reflection
+        { reflectionText: reflection }
       )
 
-      if (res.error) {
+      if ('error' in res) {
         alert(res.error)
       } else {
         // Award XP and show celebration
@@ -153,11 +162,11 @@ export function NotesClient({ book, progress: initialProgress, completions, note
     setActiveTab('notes')
   }
 
-  // Quick shelf upgrade
-  async function handleShelfChange(newStatus: string) {
-    if (!initialProgress) return
+  // Quick shelf change. Keyed by book, so it also works for a book that is being
+  // read but has never been filed on a shelf.
+  async function handleShelfChange(newShelf: ShelfType) {
     startTransition(async () => {
-      const res = await updateBookShelf(initialProgress.id, newStatus)
+      const res = await setBookShelf(book.id, newShelf)
       if (res.error) alert(res.error)
       else router.refresh()
     })
@@ -204,7 +213,7 @@ export function NotesClient({ book, progress: initialProgress, completions, note
             </div>
 
             {initialProgress && initialProgress.status === 'reading' && (
-              <div className="mt-4 max-w-md space-y-2">
+              <div className="mt-4 max-w-2xl space-y-2">
                 <div className="flex items-center justify-between text-sm">
                   <span className="font-medium text-[var(--text-secondary)]">
                     Progress: Chapter {initialProgress.current_chapter} of {book.total_chapters ?? 'unknown'}
@@ -215,19 +224,19 @@ export function NotesClient({ book, progress: initialProgress, completions, note
               </div>
             )}
 
-            {/* Quick shelf changer if not reading or wants to move */}
-            {initialProgress && (
+            {/* Quick shelf changer. Shown even when the book is on no shelf yet. */}
+            {(libraryItem || initialProgress) && (
               <div className="flex flex-wrap items-center justify-center md:justify-start gap-2 mt-4 pt-2">
                 <span className="text-xs text-[var(--text-tertiary)] mr-2 font-semibold">Change Shelf:</span>
-                {SHELF_TABS.map((t) => (
+                {SHELF_OPTIONS.map((t) => (
                   <button
                     key={t.key}
                     type="button"
-                    disabled={t.key === initialProgress.status}
+                    disabled={t.key === libraryItem?.shelf_type}
                     onClick={() => handleShelfChange(t.key)}
                     className={cn(
                       'px-2.5 py-1 rounded-lg text-xs font-medium border transition-all',
-                      t.key === initialProgress.status
+                      t.key === libraryItem?.shelf_type
                         ? 'bg-primary/10 border-primary/20 text-primary font-semibold'
                         : 'border-[var(--border-main)] hover:bg-[var(--surface-elevated)] text-[var(--text-secondary)]'
                     )}
