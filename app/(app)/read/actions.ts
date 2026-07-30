@@ -145,6 +145,11 @@ export async function completeChapterWithNotes(params: {
   // unique constraint, and profile stats count rows to award badges, so a
   // duplicate inflates the reader's chapter count and can award badges they
   // have not earned.
+  //
+  // .limit(1) matters: maybeSingle() raises PGRST116 when more than one row
+  // matches, and we ignore the error — so without the limit, a reader who
+  // already has a duplicate pair from before this guard existed would fall
+  // straight through it.
   let existingQuery = supabase
     .from('chapter_completions')
     .select('id')
@@ -156,7 +161,7 @@ export async function completeChapterWithNotes(params: {
     ? existingQuery.eq('group_id', params.groupId)
     : existingQuery.is('group_id', null)
 
-  const { data: existing } = await existingQuery.maybeSingle()
+  const { data: existing } = await existingQuery.limit(1).maybeSingle()
 
   if (existing) return { error: 'You already logged this chapter' }
 
