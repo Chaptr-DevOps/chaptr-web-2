@@ -72,10 +72,17 @@ export async function updateSession(request: NextRequest) {
     isPublicSubscribePage ||
     publicRoutes.some((p) => path === p || path.startsWith(p + '/'))
 
-  // Unauthenticated users hitting a protected route go to /signin
+  // Unauthenticated users hitting a protected route go to /signin, carrying
+  // where they were headed so sign-in can send them back. Without this an
+  // invite or share link dead-ends at /home and the recipient never sees the
+  // group they were invited to. `search` is cleared first so the destination
+  // travels in one param instead of the original query leaking onto /signin.
   if (!user && !isPublic) {
+    const destination = `${path}${request.nextUrl.search}`
     const url = request.nextUrl.clone()
     url.pathname = '/signin'
+    url.search = ''
+    url.searchParams.set('redirect', destination)
     return NextResponse.redirect(url)
   }
 

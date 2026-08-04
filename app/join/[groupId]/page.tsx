@@ -22,9 +22,10 @@ export default async function GroupPreviewPage({
   const supabase = await createClient()
   const profile = await getProfile()
 
-  // Must be signed in
+  // Must be signed in. The param is `redirect` — what /signin actually reads;
+  // middleware normally intercepts first, so this is the fallback path.
   if (!profile) {
-    redirect(`/signin?next=/join/${groupId}`)
+    redirect(`/signin?redirect=/join/${groupId}`)
   }
 
   const { data: group } = await supabase
