@@ -111,16 +111,22 @@ Replace the `memberRows` query and the `members` mapping with:
 
 ```ts
   // Members joined a reading group; they did not agree to appear on a public
-  // page a search engine can index. Anonymous visitors get the count only.
-  let members: PreviewMember[] = []
-  if (profile) {
-    const { data: memberRows } = await supabase
-      .from('group_memberships')
-      .select('role, user:users(id, username, display_name, avatar_url, profile_image_url)')
-      .eq('group_id', groupId)
-      .eq('is_active', true)
-      .limit(8)
+  // page a search engine can index. Anonymous visitors get the count plus the
+  // host — the host is the creator promoting this link, so their name is the
+  // pitch rather than a leak, and "Hosted by X" is much of why the page is
+  // trusted. Ordinary members stay anonymous.
+  const memberQuery = supabase
+    .from('group_memberships')
+    .select('role, user:users(id, username, display_name, avatar_url, profile_image_url)')
+    .eq('group_id', groupId)
+    .eq('is_active', true)
 
+  const { data: memberRows } = profile
+    ? await memberQuery.limit(8)
+    : await memberQuery.eq('role', 'admin').limit(1)
+
+  let members: PreviewMember[] = []
+  {
     members = (memberRows ?? [])
       .map((row) => {
         const u = row.user as any
@@ -179,7 +185,7 @@ Then replace the opening of the members section (currently `{members.length > 0 
                   <p className="mb-4 text-xs font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
                     Who&apos;s Reading ({memberCount})
                   </p>
-                  {members.length === 0 ? (
+                  {!isSignedIn ? (
                     <p className="text-sm text-[var(--text-secondary)]">
                       {memberCount === 1
                         ? '1 reader has joined so far.'
@@ -200,12 +206,16 @@ Expected: exits 0, no output.
 
 Start the dev server, then run:
 
+"Between the Lines" has host `Reviewer` (role `admin`) and ordinary members
+`PoemReader` and `JalireCan`. The host must appear; the other two must not.
+
 ```bash
 G=9ec644ed-b916-497e-b9d9-6a6b9f7a579d
 curl -s -o /tmp/anon.html -w 'status=%{http_code}\n' -m 25 "http://localhost:3000/join/$G"
 grep -c "Between the Lines" /tmp/anon.html          # expect >= 1
-for n in Reviewer PoemReader JalireCan; do
-  printf '%-12s ' "$n"; grep -c "$n" /tmp/anon.html || true   # expect 0 for each
+printf 'host Reviewer   '; grep -c "Reviewer" /tmp/anon.html      # expect >= 1
+for n in PoemReader JalireCan; do
+  printf 'member %-12s ' "$n"; grep -c "$n" /tmp/anon.html || true  # expect 0 each
 done
 curl -s -o /dev/null -w 'missing -> %{http_code} %{redirect_url}\n' -m 25 \
   "http://localhost:3000/join/11111111-1111-1111-1111-111111111111"
@@ -213,7 +223,13 @@ curl -s -o /dev/null -w 'malformed -> %{http_code} %{redirect_url}\n' -m 25 \
   "http://localhost:3000/join/abc-123"
 ```
 
-Expected: status=200; group name present; **each member name count is 0**; missing uuid → 307 to `/signin?redirect=…`; malformed → 307 to `/groups`.
+Expected: status=200; group name present; **`Reviewer` present** (host);
+**`PoemReader` and `JalireCan` both 0**; missing uuid → 307 to
+`/signin?redirect=…`; malformed → 307 to `/groups`.
+
+Note the count-only body means the member *chips* do not render for anonymous
+visitors — `Reviewer` appears via the "Hosted by" line, which reads from the
+same `members` array.
 
 - [ ] **Step 8: Commit**
 
@@ -522,13 +538,17 @@ git commit -m "Stop the create-group modal producing unpayable paid groups"
 ## Final verification
 
 - [ ] `npx tsc --noEmit --incremental false` exits 0
-- [ ] Anonymous `/join/<public-id>` returns 200 with group name, book and channel names, and **none** of `Reviewer`, `PoemReader`, `JalireCan`
+- [ ] Anonymous `/join/<public-id>` returns 200 with group name, book and channel names, shows host `Reviewer`, and contains **neither** `PoemReader` **nor** `JalireCan`
 - [ ] Anonymous `/join/<paid-id>` shows Join (signup link), the premium channel marked locked, and the price — no subscribe wall
 - [ ] `/join/<missing-uuid>` → `/signin?redirect=…`; `/join/abc-123` → `/groups`
 - [ ] OG tags present for a real group, generic fallback for a missing one
 - [ ] Signed-in flow unchanged: member chips render, Join joins, existing members redirect to the group
 - [ ] `select … where is_paid and stripe_price_id is null` returns zero rows
 
-## Open question for the user
+## Resolved decisions
 
-The "Hosted by <name>" line derives from `members`, so hiding member identities from anonymous visitors also hides the **host's** name. The spec says no names for anonymous visitors, and this plan implements that. But the host is the creator publicly promoting the group — their name is arguably part of the pitch, not a privacy leak. Flag before implementing if you want the host surfaced while other members stay hidden; it is a small change to fetch just the admin row when anonymous.
+**Host name is shown to anonymous visitors** (decided 2026-08-04). The host is
+the creator promoting the link, so "Hosted by X" is the pitch rather than a
+privacy leak, while ordinary members stay anonymous. Implemented by fetching
+only the `admin` row when there is no session, which also makes the existing
+`members.find((m) => m.isHost)` lookup resolve without a client change.

@@ -61,7 +61,8 @@ to go, and a nonexistent id costs one redirect.
 |---|---|---|
 | Group, banner, description, book | yes (session client, RLS) | yes |
 | Member **count** | yes (`head: true` count) | yes |
-| Member names and avatars | **no — not fetched** | yes |
+| **Host** name and avatar | yes — the admin row only | yes |
+| Other member names and avatars | **no — not fetched** | yes |
 | Channel list (names, premium/gated flags) | yes (service-role) | yes |
 | Channel contents / messages | no | members only |
 
@@ -69,6 +70,11 @@ Member identities are withheld from anonymous visitors even though RLS would
 permit them. Members joined a reading group; they did not agree to appear on a
 public web page that search engines can index. A count carries the social proof
 without publishing who those people are.
+
+The **host is the exception**, deliberately. The host is the creator publicly
+promoting this link — their name is the pitch, not a leak, and "Hosted by X" is
+much of why a follower trusts the page. So an anonymous visitor gets the admin
+row and the count; ordinary members stay anonymous.
 
 Channel *names* do become publicly visible via the existing service-role read.
 This is already true of the public `/groups/[groupId]/subscribe` page, so the
