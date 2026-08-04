@@ -11,15 +11,32 @@ import { takePendingRedirect } from '@/lib/pending-redirect'
 export default function JumpInStep() {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   async function jumpIn() {
     setLoading(true)
-    await completeOnboarding()
-    sessionStorage.removeItem('onboarding_book')
-    // A user who arrived from an invite link finishes onboarding at the group
-    // that invited them, not on a generic home feed.
-    router.push(takePendingRedirect() ?? '/home')
-    router.refresh()
+    setError(null)
+    try {
+      const result = await completeOnboarding()
+      if (result?.error) {
+        // Don't strand the user on a dead button: say what went wrong and let
+        // them retry. Previously this error was discarded.
+        setError(result.error)
+        return
+      }
+      sessionStorage.removeItem('onboarding_book')
+      // A user who arrived from an invite link finishes onboarding at the group
+      // that invited them, not on a generic home feed.
+      router.push(takePendingRedirect() ?? '/home')
+      router.refresh()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong.')
+    } finally {
+      // Always clear it. This button is the last gate before the app, so a
+      // spinner that never resets locks the user out of the product entirely —
+      // which is exactly what happened when a navigation failed to complete.
+      setLoading(false)
+    }
   }
 
   return (
@@ -35,6 +52,11 @@ export default function JumpInStep() {
           Your shelf is ready. Log chapters, join reading groups, and keep your
           notes all in one place.
         </p>
+        {error && (
+          <p className="mt-6 text-sm text-[var(--error)]" role="alert">
+            {error}
+          </p>
+        )}
         <Button
           size="lg"
           className="mt-8 w-full max-w-xs"
