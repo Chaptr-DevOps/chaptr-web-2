@@ -125,21 +125,18 @@ Replace the `memberRows` query and the `members` mapping with:
     ? await memberQuery.limit(8)
     : await memberQuery.eq('role', 'admin').limit(1)
 
-  let members: PreviewMember[] = []
-  {
-    members = (memberRows ?? [])
-      .map((row) => {
-        const u = row.user as any
-        if (!u) return null
-        return {
-          id: u.id,
-          name: u.display_name ?? u.username ?? 'Reader',
-          avatarUrl: u.avatar_url ?? u.profile_image_url ?? null,
-          isHost: row.role === 'admin',
-        }
-      })
-      .filter(Boolean) as PreviewMember[]
-  }
+  const members: PreviewMember[] = (memberRows ?? [])
+    .map((row) => {
+      const u = row.user as any
+      if (!u) return null
+      return {
+        id: u.id,
+        name: u.display_name ?? u.username ?? 'Reader',
+        avatarUrl: u.avatar_url ?? u.profile_image_url ?? null,
+        isHost: row.role === 'admin',
+      }
+    })
+    .filter(Boolean) as PreviewMember[]
 ```
 
 Leave the `memberCount` query exactly as it is — the RLS policy "Users can view public group memberships" permits it anonymously for public groups.
