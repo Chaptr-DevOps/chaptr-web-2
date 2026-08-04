@@ -1,6 +1,7 @@
 import { notFound, redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { getAuthUser } from '@/lib/queries'
+import { isUuid } from '@/lib/route-params'
 import type { ChapterNote } from '@/components/chapter/types'
 import { ChapterCompletionClient } from './chapter-completion-client'
 
@@ -13,6 +14,7 @@ interface PageProps {
 
 export default async function ChapterCompletionPage({ params, searchParams }: PageProps) {
   const { bookId, chapterNumber: chapterParam } = await params
+  if (!isUuid(bookId)) notFound()
   const { group } = await searchParams
   const groupId = group ?? null
 

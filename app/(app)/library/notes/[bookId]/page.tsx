@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { getProfile } from '@/lib/queries'
+import { isUuid } from '@/lib/route-params'
 import { PageHeader } from '@/components/page-header'
 import { NotesClient } from './notes-client'
 
@@ -14,6 +15,7 @@ interface PageProps {
 
 export default async function NotesPage({ params }: PageProps) {
   const { bookId } = await params
+  if (!isUuid(bookId)) redirect('/library')
   const supabase = await createClient()
   const profile = await getProfile()
 

@@ -3,6 +3,7 @@ import type { Metadata } from 'next'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { isSubscribedToGroup } from '@/lib/queries'
+import { isUuid } from '@/lib/route-params'
 import { formatPrice } from '@/lib/stripe'
 import { retrieveSubscriptionState } from '@/lib/stripe-server'
 import { LEGAL } from '@/lib/legal'
@@ -28,6 +29,10 @@ interface PageProps {
  */
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { groupId } = await params
+  // Metadata is generated before the page body runs, so it needs the same
+  // guard — a malformed id would otherwise fail this query too.
+  if (!isUuid(groupId)) return { title: `Subscribe · ${LEGAL.productName}` }
+
   const { data: group } = await createAdminClient()
     .from('reading_groups')
     .select('name, description, is_paid, price')
@@ -46,6 +51,8 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
 export default async function SubscribePage({ params }: PageProps) {
   const { groupId } = await params
+  if (!isUuid(groupId)) notFound()
+
   const admin = createAdminClient()
 
   const { data: group } = await admin

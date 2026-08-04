@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { getProfile } from '@/lib/queries'
+import { isUuid } from '@/lib/route-params'
 import { PageHeader } from '@/components/page-header'
 import { ManageClient } from './manage-client'
 
@@ -16,6 +17,7 @@ interface PageProps {
 
 export default async function ManagePage({ params, searchParams }: PageProps) {
   const { groupId } = await params
+  if (!isUuid(groupId)) redirect('/groups')
   const { tab } = await searchParams
   const initialTab: ManageTab = TABS.includes(tab as ManageTab)
     ? (tab as ManageTab)

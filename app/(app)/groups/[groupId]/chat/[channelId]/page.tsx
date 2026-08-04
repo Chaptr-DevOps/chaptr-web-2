@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { getProfile, isSubscribedToGroup } from '@/lib/queries'
+import { isUuid } from '@/lib/route-params'
 import { ChatClient } from './chat-client'
 
 export const dynamic = 'force-dynamic'
@@ -11,6 +12,8 @@ interface PageProps {
 
 export default async function ChatPage({ params }: PageProps) {
   const { groupId, channelId } = await params
+  if (!isUuid(groupId)) redirect('/groups')
+  if (!isUuid(channelId)) redirect(`/groups/${groupId}`)
   const supabase = await createClient()
   const profile = await getProfile()
 

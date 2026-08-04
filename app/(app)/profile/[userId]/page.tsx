@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation'
 import { getProfile } from '@/lib/queries'
+import { isUuid } from '@/lib/route-params'
 import { getPublicProfile } from '../actions'
 import { ProfileClient } from '../profile-client'
 
@@ -9,6 +10,7 @@ export default async function UserProfilePage({
   params: Promise<{ userId: string }>
 }) {
   const { userId } = await params
+  if (!isUuid(userId)) notFound()
   const [stats, me] = await Promise.all([getPublicProfile(userId), getProfile()])
   if (!stats) notFound()
 

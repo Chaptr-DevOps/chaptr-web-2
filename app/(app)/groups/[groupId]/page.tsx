@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
 import { getProfile, isSubscribedToGroup } from '@/lib/queries'
+import { isUuid } from '@/lib/route-params'
 import { PageHeader } from '@/components/page-header'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -35,6 +36,7 @@ interface PageProps {
 
 export default async function GroupDetailPage({ params }: PageProps) {
   const { groupId } = await params
+  if (!isUuid(groupId)) redirect('/groups')
   const supabase = await createClient()
   const profile = await getProfile()
 

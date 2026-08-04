@@ -2,13 +2,11 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getProfile } from '@/lib/queries'
+import { isUuid } from '@/lib/route-params'
 import { GroupPreviewClient } from './preview-client'
 import type { PreviewBook, PreviewChannel, PreviewMember } from './preview-client'
 
 export const dynamic = 'force-dynamic'
-
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /**
  * Group preview — the single landing spot before joining, reached from a
@@ -23,14 +21,9 @@ export default async function GroupPreviewPage({
 }) {
   const { groupId } = await params
 
-  // `reading_groups.id` is a uuid, so a malformed id makes Postgres reject the
-  // whole query (22P02) rather than return no rows — the same "not found" case
-  // arriving as an error instead of an empty result. Screen it out here so a
-  // mistyped or stale invite link lands on the group list like any other
-  // missing group.
-  if (!UUID_RE.test(groupId)) {
-    redirect('/groups')
-  }
+  // A mistyped or stale invite link lands on the group list like any other
+  // missing group, rather than failing the query outright. See isUuid.
+  if (!isUuid(groupId)) redirect('/groups')
 
   const supabase = await createClient()
   const profile = await getProfile()

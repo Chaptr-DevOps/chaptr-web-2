@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { getProfile } from '@/lib/queries'
+import { isUuid } from '@/lib/route-params'
 import { DiscussionDetailClient } from '@/components/discussions/discussion-detail-client'
 import type { DiscussionWithUser } from '@/components/discussions/discussion-thread'
 import type { CommentWithUser } from '@/components/discussions/discussion-detail-client'
@@ -15,6 +16,7 @@ interface PageProps {
 
 export default async function DiscussionDetailPage({ params }: PageProps) {
   const { discussionId } = await params
+  if (!isUuid(discussionId)) redirect('/home')
   const supabase = await createClient()
   const profile = await getProfile()
 
