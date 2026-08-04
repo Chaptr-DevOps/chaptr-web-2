@@ -37,21 +37,10 @@ export default function BooksStep() {
     setSearching(true)
     try {
       const res = await fetch(
-        `https://openlibrary.org/search.json?q=${encodeURIComponent(
-          query,
-        )}&limit=8&fields=title,author_name,number_of_pages_median,cover_i`,
+        `/api/books/search?q=${encodeURIComponent(query)}`,
       )
       const json = await res.json()
-      setResults(
-        (json.docs ?? []).map((d: Record<string, unknown>) => ({
-          title: d.title as string,
-          author: (d.author_name as string[] | undefined)?.[0] ?? 'Unknown',
-          pages: (d.number_of_pages_median as number) ?? null,
-          cover: d.cover_i
-            ? `https://covers.openlibrary.org/b/id/${d.cover_i}-M.jpg`
-            : null,
-        })),
-      )
+      setResults(json.results ?? [])
     } catch {
       setResults([])
     } finally {

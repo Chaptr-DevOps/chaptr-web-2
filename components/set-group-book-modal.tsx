@@ -61,17 +61,10 @@ export function SetGroupBookModal({
     setSearching(true)
     setError('')
     try {
-      const res = await fetch(
-        `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&limit=8&fields=title,author_name,cover_i`,
-      )
+      const res = await fetch(`/api/books/search?q=${encodeURIComponent(query)}`)
       const json = await res.json()
-      setResults(
-        (json.docs ?? []).map((d: any) => ({
-          title: d.title,
-          author: d.author_name?.[0] ?? 'Unknown author',
-          cover: d.cover_i ? `https://covers.openlibrary.org/b/id/${d.cover_i}-M.jpg` : null,
-        })),
-      )
+      if (json.error) setError('Could not reach the book catalog. Try again.')
+      setResults(json.results ?? [])
     } catch {
       setResults([])
       setError('Could not reach the book catalog. Try again.')

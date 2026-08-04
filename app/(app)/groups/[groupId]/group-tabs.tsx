@@ -280,19 +280,10 @@ export function GroupTabs({
     setSearchingBooks(true)
     try {
       const res = await fetch(
-        `https://openlibrary.org/search.json?q=${encodeURIComponent(
-          bookQuery
-        )}&limit=5&fields=title,author_name,number_of_pages_median,cover_i`
+        `/api/books/search?q=${encodeURIComponent(bookQuery)}`
       )
       const json = await res.json()
-      setBookResults(
-        (json.docs ?? []).map((d: any) => ({
-          title: d.title,
-          author: d.author_name?.[0] ?? 'Unknown Author',
-          pages: d.number_of_pages_median ?? null,
-          cover: d.cover_i ? `https://covers.openlibrary.org/b/id/${d.cover_i}-M.jpg` : null
-        }))
-      )
+      setBookResults((json.results ?? []).slice(0, 5))
     } catch (err) {
       console.error(err)
       setBookResults([])

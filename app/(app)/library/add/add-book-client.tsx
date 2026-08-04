@@ -45,20 +45,9 @@ export function AddBookClient({ initialShelves }: { initialShelves: CustomShelf[
     if (!query.trim()) return
     setSearching(true)
     try {
-      const res = await fetch(
-        `https://openlibrary.org/search.json?q=${encodeURIComponent(
-          query
-        )}&limit=8&fields=title,author_name,number_of_pages_median,cover_i`
-      )
+      const res = await fetch(`/api/books/search?q=${encodeURIComponent(query)}`)
       const json = await res.json()
-      setResults(
-        (json.docs ?? []).map((d: Record<string, any>) => ({
-          title: d.title,
-          author: (d.author_name as string[])?.[0] ?? 'Unknown Author',
-          pages: d.number_of_pages_median ?? null,
-          cover: d.cover_i ? `https://covers.openlibrary.org/b/id/${d.cover_i}-M.jpg` : null,
-        }))
-      )
+      setResults(json.results ?? [])
     } catch {
       setResults([])
     } finally {
