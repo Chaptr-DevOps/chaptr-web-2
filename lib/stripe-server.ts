@@ -11,7 +11,13 @@ export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY)
 export const PLATFORM_FEE_PERCENT = 15
 
 function baseUrl() {
-  return process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+  // Production sets NEXT_PUBLIC_APP_URL to the real domain. Preview deploys
+  // deliberately don't — every deploy has its own host — so fall back to the
+  // one Vercel injects, which keeps Checkout and Connect redirects inside the
+  // deployment under test instead of sending testers to localhost.
+  if (process.env.NEXT_PUBLIC_APP_URL) return process.env.NEXT_PUBLIC_APP_URL
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`
+  return 'http://localhost:3000'
 }
 
 // ── Connect onboarding ──────────────────────────────────────────────────
