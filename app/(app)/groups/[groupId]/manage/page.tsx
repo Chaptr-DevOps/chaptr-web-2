@@ -6,12 +6,20 @@ import { ManageClient } from './manage-client'
 
 export const dynamic = 'force-dynamic'
 
+const TABS = ['general', 'channels', 'members', 'monetization'] as const
+type ManageTab = (typeof TABS)[number]
+
 interface PageProps {
   params: Promise<{ groupId: string }>
+  searchParams: Promise<{ tab?: string }>
 }
 
-export default async function ManagePage({ params }: PageProps) {
+export default async function ManagePage({ params, searchParams }: PageProps) {
   const { groupId } = await params
+  const { tab } = await searchParams
+  const initialTab: ManageTab = TABS.includes(tab as ManageTab)
+    ? (tab as ManageTab)
+    : 'general'
   const supabase = await createClient()
   const profile = await getProfile()
 
@@ -64,13 +72,18 @@ export default async function ManagePage({ params }: PageProps) {
       />
       <ManageClient
         groupId={groupId}
+        initialTab={initialTab}
         group={{
           name: group.name,
           reading_pace: group.reading_pace,
           is_public: group.is_public,
           invite_code: group.invite_code,
           current_book_id: group.current_book_id,
+          is_paid: group.is_paid,
+          price: group.price,
+          banner_image_url: group.banner_image_url,
         }}
+        isCreator={group.created_by === profile.id}
         channels={channels ?? []}
         members={(members ?? []) as any}
         currentBook={group.current_book as any}

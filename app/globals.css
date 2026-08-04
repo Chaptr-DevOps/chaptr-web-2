@@ -4,45 +4,93 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
-  Chaptr design tokens (ported exactly from the production app).
-  Light + dark values provided for every semantic color.
+  ============================================================================
+  Chaptr design tokens
+  ----------------------------------------------------------------------------
+  Ported 1:1 from the mobile app's theme (src/theme/index.ts + typography.ts).
+  When the mobile theme changes, change it here too — these two files are the
+  contract that makes web and mobile feel like one product.
+
+  Layout:
+    1. @theme inline  — maps CSS vars to Tailwind utilities
+    2. :root          — light palette
+    3. .dark          — dark palette
+    4. @media         — dark palette again, as the no-JS / pre-hydration fallback
+    5. @layer base    — element defaults
+    6. @utility       — the mobile type scale
+  ============================================================================
 */
+
 @theme inline {
   --font-sans: var(--font-inter);
   --font-serif: var(--font-crimson);
 
+  /* --- Surfaces --- */
   --color-background: var(--background);
   --color-foreground: var(--text-primary);
-
   --color-surface: var(--surface);
   --color-surface-elevated: var(--surface-elevated);
 
+  /* --- Text --- */
   --color-text-primary: var(--text-primary);
   --color-text-secondary: var(--text-secondary);
   --color-text-tertiary: var(--text-tertiary);
+  --color-text-disabled: var(--text-disabled);
+  --color-text-inverse: var(--text-inverse);
 
+  /* --- Interactive --- */
   --color-primary: var(--interactive-primary);
+  --color-primary-hover: var(--interactive-primary-hover);
   --color-primary-foreground: var(--interactive-primary-foreground);
 
-  --color-success: var(--success);
-  --color-error: var(--error);
-  --color-border: var(--border-main);
+  /* --- Brand accents --- */
+  --color-brand: var(--accent-brand);
+  --color-brand-light: var(--accent-brand-light);
+  --color-brand-dark: var(--accent-brand-dark);
+  --color-highlight: var(--accent-highlight);
 
-  /* shadcn/base compatibility aliases so primitives keep working */
+  /* --- Status --- */
+  --color-success: var(--success);
+  --color-success-bg: var(--success-bg);
+  --color-success-strong: var(--success-strong);
+  --color-success-border: var(--success-border);
+
+  --color-warning: var(--warning);
+  --color-warning-bg: var(--warning-bg);
+  --color-warning-strong: var(--warning-strong);
+  --color-warning-border: var(--warning-border);
+
+  --color-error: var(--error);
+  --color-error-bg: var(--error-bg);
+  --color-error-strong: var(--error-strong);
+  --color-error-border: var(--error-border);
+
+  --color-info: var(--info);
+  --color-info-bg: var(--info-bg);
+  --color-info-strong: var(--info-strong);
+  --color-info-border: var(--info-border);
+
+  /* --- Borders --- */
+  --color-border: var(--border-main);
+  --color-border-light: var(--border-light);
+  --color-border-strong: var(--border-dark);
+
+  /* --- shadcn / base-ui compatibility aliases --- */
   --color-card: var(--surface);
   --color-card-foreground: var(--text-primary);
   --color-popover: var(--surface-elevated);
   --color-popover-foreground: var(--text-primary);
-  --color-secondary: var(--surface-elevated);
+  --color-secondary: var(--interactive-secondary);
   --color-secondary-foreground: var(--text-primary);
-  --color-muted: var(--surface-elevated);
+  --color-muted: var(--interactive-secondary);
   --color-muted-foreground: var(--text-secondary);
-  --color-accent: var(--surface-elevated);
+  --color-accent: var(--interactive-secondary);
   --color-accent-foreground: var(--text-primary);
   --color-destructive: var(--error);
   --color-input: var(--border-main);
   --color-ring: var(--interactive-primary);
 
+  /* --- Radii (mobile borderRadius) --- */
   --radius-sm: 6px;
   --radius-base: 8px;
   --radius-md: 10px;
@@ -51,64 +99,239 @@
   --radius-2xl: 20px;
   --radius-full: 999px;
 
-  --text-hero: 40px;
-  --text-hero--line-height: 44px;
-  --text-hero--letter-spacing: -1px;
-  --text-section: 34px;
-  --text-section--line-height: 40px;
-  --text-section--letter-spacing: -0.7px;
-  --text-card: 22px;
-  --text-card--line-height: 28px;
-  --text-card--letter-spacing: -0.3px;
-  --text-body: 17px;
-  --text-body--line-height: 26px;
+  /*
+    NOTE: do not add named --spacing-* keys here (xs/sm/md/lg/xl/2xl/…).
+    Tailwind v4 resolves max-w-* against the --spacing-* namespace as well as
+    --container-*, so a key like --spacing-2xl silently turns max-w-2xl into
+    24px and collapses every capped element in the app. Mobile's spacing scale
+    (4/8/12/16/20/24/32/40/48px) already maps 1:1 onto Tailwind's numeric
+    scale — use p-1 … p-12 instead.
+  */
+
+  /* --- Elevation (mobile shadows; opacity ramps swap per mode) --- */
+  --shadow-sm: 0 1px 2px var(--shadow-color-sm);
+  --shadow: 0 2px 4px var(--shadow-color-base);
+  --shadow-md: 0 4px 6px var(--shadow-color-md);
+  --shadow-lg: 0 8px 10px var(--shadow-color-lg);
 }
 
+/* ==========================================================================
+   Light palette
+   ========================================================================== */
 :root {
   color-scheme: light;
+
+  /* Surfaces */
   --background: #f8f5ef;
   --surface: #ffffff;
   --surface-elevated: #ffffff;
+
+  /* Text */
   --text-primary: #1f1f1f;
   --text-secondary: #4d4d4d;
   --text-tertiary: #757575;
+  --text-disabled: #a1a1a1;
+  --text-inverse: #ffffff;
+
+  /* Interactive */
   --interactive-primary: #1d4e4b;
+  --interactive-primary-hover: #2a6b67;
   --interactive-primary-foreground: #f8f5ef;
-  --border-main: #e5e1d9;
+  --interactive-secondary: #f3f0ea;
+  --interactive-secondary-hover: #ebe7df;
+
+  /* Brand accents */
+  --accent-brand: #1d4e4b;
+  --accent-brand-light: #2a6b67;
+  --accent-brand-dark: #163835;
+  --accent-secondary: #c42847;
+  --accent-highlight: #fdf8f0;
+
+  /* Status */
   --success: #2e7d4a;
+  --success-bg: #e9f5ec;
+  --success-strong: #256b3e;
+  --success-border: #8bc9a0;
+
+  --warning: #b8860b;
+  --warning-bg: #fdf6e9;
+  --warning-strong: #9a7209;
+  --warning-border: #dec07a;
+
   --error: #c42847;
+  --error-bg: #fdeeee;
+  --error-strong: #a32039;
+  --error-border: #e08898;
+
+  --info: #3d7a8c;
+  --info-bg: #eef4f7;
+  --info-strong: #326573;
+  --info-border: #8cb8c4;
+
+  /* Borders */
+  --border-light: #f3f0ea;
+  --border-main: #e5e1d9;
+  --border-dark: #d4d0c6;
+
+  /* TBR priority — "normal" only; overdue/dueSoon alias error/warning */
+  --priority-normal-bg: #f3f0ea;
+  --priority-normal-text: #757575;
+  --priority-normal-border: #e5e1d9;
+
+  /* Gradients */
+  --gradient-primary: linear-gradient(180deg, #2d2d2d, #1a1a1a);
+  --gradient-avatar: linear-gradient(180deg, #e5e1d9, #d4d0c6);
+  --gradient-background: linear-gradient(180deg, #f8f5ef, #ffffff);
+
+  /* Elevation opacity ramp */
+  --shadow-color-sm: rgb(0 0 0 / 0.05);
+  --shadow-color-base: rgb(0 0 0 / 0.1);
+  --shadow-color-md: rgb(0 0 0 / 0.15);
+  --shadow-color-lg: rgb(0 0 0 / 0.2);
+
+  /* Scrim */
+  --overlay: rgb(0 0 0 / 0.5);
+
   --radius: 12px;
 }
 
+/* ==========================================================================
+   Dark palette
+   ========================================================================== */
 .dark {
   color-scheme: dark;
+
   --background: #0c1014;
   --surface: #141820;
   --surface-elevated: #1c2028;
+
   --text-primary: #f2f2f2;
   --text-secondary: #b3b3b3;
   --text-tertiary: #808080;
+  --text-disabled: #4d4d4d;
+  --text-inverse: #0c1014;
+
   --interactive-primary: #4a9e9a;
+  --interactive-primary-hover: #5bb5b0;
   --interactive-primary-foreground: #0c1014;
-  --border-main: #282e38;
+  --interactive-secondary: #1c2028;
+  --interactive-secondary-hover: #252a34;
+
+  --accent-brand: #4a9e9a;
+  --accent-brand-light: #5bb5b0;
+  --accent-brand-dark: #3a8885;
+  --accent-secondary: #d94a66;
+  --accent-highlight: #1e1814;
+
   --success: #5aaa75;
+  --success-bg: #101c16;
+  --success-strong: #4a9463;
+  --success-border: #1c3028;
+
+  --warning: #d4a84a;
+  --warning-bg: #1c1810;
+  --warning-strong: #c49a3a;
+  --warning-border: #38301c;
+
   --error: #d94a66;
+  --error-bg: #1c1216;
+  --error-strong: #c42847;
+  --error-border: #381c28;
+
+  --info: #5a9aad;
+  --info-bg: #10181c;
+  --info-strong: #4a8a9d;
+  --info-border: #1c3038;
+
+  --border-light: #1c2028;
+  --border-main: #282e38;
+  --border-dark: #363c48;
+
+  --priority-normal-bg: #1c2028;
+  --priority-normal-text: #b3b3b3;
+  --priority-normal-border: #282e38;
+
+  --gradient-primary: linear-gradient(180deg, #e8e8e8, #cccccc);
+  --gradient-avatar: linear-gradient(180deg, #363c48, #282e38);
+  --gradient-background: linear-gradient(180deg, #0c1014, #141820);
+
+  --shadow-color-sm: rgb(0 0 0 / 0.3);
+  --shadow-color-base: rgb(0 0 0 / 0.4);
+  --shadow-color-md: rgb(0 0 0 / 0.5);
+  --shadow-color-lg: rgb(0 0 0 / 0.6);
+
+  --overlay: rgb(0 0 0 / 0.7);
 }
 
+/*
+  No-JS / pre-hydration fallback. The theme script in app/layout.tsx normally
+  stamps an explicit .light or .dark on <html> before paint, so this only kicks
+  in when JS is unavailable. Keep in sync with .dark above.
+*/
 @media (prefers-color-scheme: dark) {
-  :root:not(.light) {
+  :root:not(.light):not(.dark) {
     color-scheme: dark;
+
     --background: #0c1014;
     --surface: #141820;
     --surface-elevated: #1c2028;
+
     --text-primary: #f2f2f2;
     --text-secondary: #b3b3b3;
     --text-tertiary: #808080;
+    --text-disabled: #4d4d4d;
+    --text-inverse: #0c1014;
+
     --interactive-primary: #4a9e9a;
+    --interactive-primary-hover: #5bb5b0;
     --interactive-primary-foreground: #0c1014;
-    --border-main: #282e38;
+    --interactive-secondary: #1c2028;
+    --interactive-secondary-hover: #252a34;
+
+    --accent-brand: #4a9e9a;
+    --accent-brand-light: #5bb5b0;
+    --accent-brand-dark: #3a8885;
+    --accent-secondary: #d94a66;
+    --accent-highlight: #1e1814;
+
     --success: #5aaa75;
+    --success-bg: #101c16;
+    --success-strong: #4a9463;
+    --success-border: #1c3028;
+
+    --warning: #d4a84a;
+    --warning-bg: #1c1810;
+    --warning-strong: #c49a3a;
+    --warning-border: #38301c;
+
     --error: #d94a66;
+    --error-bg: #1c1216;
+    --error-strong: #c42847;
+    --error-border: #381c28;
+
+    --info: #5a9aad;
+    --info-bg: #10181c;
+    --info-strong: #4a8a9d;
+    --info-border: #1c3038;
+
+    --border-light: #1c2028;
+    --border-main: #282e38;
+    --border-dark: #363c48;
+
+    --priority-normal-bg: #1c2028;
+    --priority-normal-text: #b3b3b3;
+    --priority-normal-border: #282e38;
+
+    --gradient-primary: linear-gradient(180deg, #e8e8e8, #cccccc);
+    --gradient-avatar: linear-gradient(180deg, #363c48, #282e38);
+    --gradient-background: linear-gradient(180deg, #0c1014, #141820);
+
+    --shadow-color-sm: rgb(0 0 0 / 0.3);
+    --shadow-color-base: rgb(0 0 0 / 0.4);
+    --shadow-color-md: rgb(0 0 0 / 0.5);
+    --shadow-color-lg: rgb(0 0 0 / 0.6);
+
+    --overlay: rgb(0 0 0 / 0.7);
   }
 }
 
@@ -130,21 +353,129 @@
   }
 }
 
+/* ==========================================================================
+   Type scale — mirrors src/theme/typography.ts on mobile.
+   Crimson Pro (serif) for titles, Inter (sans) for body/UI.
+   ========================================================================== */
+
+/* heroTitle — Crimson Pro Bold 40 / -1 */
 @utility text-hero {
-  font-family: var(--font-serif), serif;
-  font-size: var(--text-hero);
-  line-height: var(--text-hero--line-height);
-  letter-spacing: var(--text-hero--letter-spacing);
+  font-family: var(--font-serif), ui-serif, Georgia, serif;
+  font-size: 40px;
+  line-height: 44px;
+  font-weight: 700;
+  letter-spacing: -1px;
 }
+
+/* sectionTitle — Crimson Pro SemiBold 34 / -0.7 */
 @utility text-section {
-  font-family: var(--font-serif), serif;
-  font-size: var(--text-section);
-  line-height: var(--text-section--line-height);
-  letter-spacing: var(--text-section--letter-spacing);
+  font-family: var(--font-serif), ui-serif, Georgia, serif;
+  font-size: 34px;
+  line-height: 40px;
+  font-weight: 600;
+  letter-spacing: -0.7px;
 }
+
+/* cardTitle — Crimson Pro SemiBold 22 / -0.3 */
 @utility text-cardtitle {
-  font-family: var(--font-serif), serif;
-  font-size: var(--text-card);
-  line-height: var(--text-card--line-height);
-  letter-spacing: var(--text-card--letter-spacing);
+  font-family: var(--font-serif), ui-serif, Georgia, serif;
+  font-size: 22px;
+  line-height: 28px;
+  font-weight: 600;
+  letter-spacing: -0.3px;
+}
+
+/* chapterTitle — Crimson Pro SemiBold 28 / -0.5 */
+@utility text-chaptertitle {
+  font-family: var(--font-serif), ui-serif, Georgia, serif;
+  font-size: 28px;
+  line-height: 34px;
+  font-weight: 600;
+  letter-spacing: -0.5px;
+}
+
+/* greeting — Crimson Pro SemiBold 32 / -0.7 */
+@utility text-greeting {
+  font-family: var(--font-serif), ui-serif, Georgia, serif;
+  font-size: 32px;
+  line-height: 38px;
+  font-weight: 600;
+  letter-spacing: -0.7px;
+}
+
+/* userName — Crimson Pro SemiBold 26 / -0.4 */
+@utility text-username {
+  font-family: var(--font-serif), ui-serif, Georgia, serif;
+  font-size: 26px;
+  line-height: 32px;
+  font-weight: 600;
+  letter-spacing: -0.4px;
+}
+
+/* bookTitle — Crimson Pro Medium 17 / -0.2 */
+@utility text-booktitle {
+  font-family: var(--font-serif), ui-serif, Georgia, serif;
+  font-size: 17px;
+  line-height: 22px;
+  font-weight: 500;
+  letter-spacing: -0.2px;
+}
+
+/* bookTitleLarge — Crimson Pro SemiBold 22 / -0.3 */
+@utility text-booktitle-lg {
+  font-family: var(--font-serif), ui-serif, Georgia, serif;
+  font-size: 22px;
+  line-height: 28px;
+  font-weight: 600;
+  letter-spacing: -0.3px;
+}
+
+/* subtitle — Inter SemiBold 18 / -0.3 */
+@utility text-subtitle {
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  font-size: 18px;
+  line-height: 24px;
+  font-weight: 600;
+  letter-spacing: -0.3px;
+}
+
+/* body — Inter Regular 17 / 26 */
+@utility text-body {
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  font-size: 17px;
+  line-height: 26px;
+  font-weight: 400;
+}
+
+/* bodyMedium — Inter Medium 16 / 24 */
+@utility text-bodymedium {
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 500;
+}
+
+/* button — Inter Bold 18 / +0.5 */
+@utility text-button {
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  font-size: 18px;
+  line-height: 24px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+/* label — Inter SemiBold 15 */
+@utility text-label {
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 600;
+}
+
+/* caption — Inter Medium 13 */
+@utility text-caption {
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 500;
 }

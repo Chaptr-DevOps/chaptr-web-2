@@ -89,11 +89,6 @@ export function ProfileClient({
               <p className="mt-0.5 text-sm text-[var(--text-tertiary)]">
                 @{profile.username}
               </p>
-              {profile.bio && (
-                <p className="mt-1 max-w-xs text-[14px] text-[var(--text-secondary)]">
-                  {profile.bio}
-                </p>
-              )}
             </div>
           </div>
           {isOwn && (
@@ -106,6 +101,13 @@ export function ProfileClient({
             </Link>
           )}
         </div>
+
+        {/* Bio — full-width row so long bios aren't boxed into the avatar cluster */}
+        {profile.bio && (
+          <p className="relative mt-4 text-[15px] leading-relaxed text-pretty text-[var(--text-secondary)]">
+            {profile.bio}
+          </p>
+        )}
 
         {/* Stat pills */}
         <div className="mt-6 grid grid-cols-3 gap-3">

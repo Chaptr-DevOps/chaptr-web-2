@@ -1,14 +1,12 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { CheckCircle2, Loader2 } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import { ChapterHeader } from '@/components/chapter/chapter-header'
 import { NoteList } from '@/components/chapter/note-list'
 import { NoteComposer } from '@/components/chapter/note-composer'
 import { ConfettiBurst } from '@/components/chapter/confetti-burst'
-import { PostCompletionModal } from '@/components/chapter/post-completion-modal'
-import { BookCompletionModal } from '@/components/chapter/book-completion-modal'
-import { CreateDiscussionModal } from '@/components/discussions/create-discussion-modal'
+import { ChapterSuccess } from '@/components/chapter/chapter-success'
 import type { ChapterNote } from '@/components/chapter/types'
 import {
   addChapterNote,
@@ -20,13 +18,18 @@ import {
 export interface ChapterCompletionClientProps {
   bookId: string
   bookTitle: string
+  bookAuthor: string | null
+  coverImageUrl: string | null
   chapterNumber: number
   totalChapters: number
   progressId: string
   groupId: string | null
   groupColor: string | null
-  groupName: string | null
   completedChapterNumbers: number[]
+  /** Timestamps of this book's existing completions, for the pace stat. */
+  completionDates: string[]
+  completionTargetDate: string | null
+  startedAt: string | null
   initialNotes: ChapterNote[]
 }
 
@@ -63,15 +66,14 @@ export function ChapterCompletionClient(props: ChapterCompletionClientProps) {
   const [completing, setCompleting] = useState(false)
   const [completeError, setCompleteError] = useState<string | null>(null)
   const [animatedPercent, setAnimatedPercent] = useState(fromPercent)
-  const [modal, setModal] = useState<'none' | 'post' | 'book' | 'discussion'>('none')
-  const [pendingModal, setPendingModal] = useState<'post' | 'book' | null>(null)
+  const [isFinalChapter, setIsFinalChapter] = useState(false)
 
   const savedNotes = notes.filter((n) => !n.pending)
   const hasPendingNote = notes.some((n) => n.pending)
-  // Completing while a note is still saving would permanently mistag it: the
-  // noteIds snapshot cannot include an id the server has not issued yet, so that
-  // note stays note_type 'snippet' forever and is never associated with this
-  // completion. Block until every note has landed.
+  // Completing while a note is still saving would silently drop it: the noteIds
+  // snapshot cannot include an id the server has not issued yet, so that note is
+  // left out of the combined chapter note and stranded as a loose snippet.
+  // Block until every note has landed.
   const alreadyLogged = props.completedChapterNumbers.includes(chapterNumber)
   const canComplete =
     savedNotes.length > 0 && !hasPendingNote && !completing && !alreadyLogged
@@ -80,10 +82,15 @@ export function ChapterCompletionClient(props: ChapterCompletionClientProps) {
   // displaying its live length would inflate the count if a note resolved late.
   const [completedNoteCount, setCompletedNoteCount] = useState(0)
 
+  // The completion the user just made is not in the server-rendered array, but
+  // the pace stat is meaningless without it — a reader logging their second
+  // chapter would otherwise be told there is no pace yet.
+  const [completionDates, setCompletionDates] = useState(props.completionDates)
+
   // Why the button is disabled, or null when it is enabled. Wired to the button
   // via aria-describedby so the reason is available to assistive tech.
   const completeHint = alreadyLogged
-    ? 'You already logged this chapter — your notes above are still editable'
+    ? 'You already logged this chapter — your notes are saved in your library'
     : hasPendingNote
       ? 'Saving your note…'
       : savedNotes.length === 0
@@ -113,9 +120,10 @@ export function ChapterCompletionClient(props: ChapterCompletionClientProps) {
     }
 
     setCompletedNoteCount(savedNotes.length)
+    setCompletionDates((prev) => [...prev, new Date().toISOString()])
+    setIsFinalChapter(res.isFinalChapter)
     setCompleted(true)
     setShowConfetti(true)
-    setPendingModal(res.isFinalChapter ? 'book' : 'post')
     // The progress bar is already mounted in the header, so setting the width
     // here transitions via its `transition-[width]` class.
     setAnimatedPercent(Math.round(res.progressPercentage))
@@ -123,19 +131,10 @@ export function ChapterCompletionClient(props: ChapterCompletionClientProps) {
 
   useEffect(() => {
     if (!showConfetti) return
-    const timer = window.setTimeout(() => setShowConfetti(false), 2500)
+    // Finishing a whole book earns a longer burst than finishing a chapter.
+    const timer = window.setTimeout(() => setShowConfetti(false), isFinalChapter ? 4200 : 2500)
     return () => window.clearTimeout(timer)
-  }, [showConfetti])
-
-  // Let the success state and confetti land before the modal covers them.
-  useEffect(() => {
-    if (!pendingModal) return
-    const timer = window.setTimeout(() => {
-      setModal(pendingModal)
-      setPendingModal(null)
-    }, 900)
-    return () => window.clearTimeout(timer)
-  }, [pendingModal])
+  }, [showConfetti, isFinalChapter])
 
   async function handleAdd(content: string): Promise<boolean> {
     setNoteError(null)
@@ -217,17 +216,22 @@ export function ChapterCompletionClient(props: ChapterCompletionClientProps) {
       <ConfettiBurst show={showConfetti} />
 
       {completed ? (
-        <div className="flex flex-1 flex-col items-center justify-center px-4 text-center">
-          <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-[var(--surface-elevated)]">
-            <CheckCircle2 className="h-8 w-8 text-[var(--success)]" />
-          </div>
-          <h2 className="font-serif text-2xl font-bold text-[var(--text-primary)]">
-            Chapter Complete!
-          </h2>
-          <p className="mt-1 text-sm text-[var(--text-secondary)]">
-            {completedNoteCount} note{completedNoteCount === 1 ? '' : 's'} saved
-          </p>
-        </div>
+        <ChapterSuccess
+          bookId={bookId}
+          bookTitle={bookTitle}
+          bookAuthor={props.bookAuthor}
+          coverImageUrl={props.coverImageUrl}
+          chapterNumber={chapterNumber}
+          totalChapters={totalChapters}
+          fromPercent={fromPercent}
+          toPercent={animatedPercent}
+          noteCount={completedNoteCount}
+          isFinalChapter={isFinalChapter}
+          completionTargetDate={props.completionTargetDate}
+          startedAt={props.startedAt}
+          completionDates={completionDates}
+          accentColor={groupColor}
+        />
       ) : (
         <>
           <div className="flex-1 overflow-y-auto px-4 pb-4">
@@ -262,45 +266,6 @@ export function ChapterCompletionClient(props: ChapterCompletionClientProps) {
             )}
           </div>
         </>
-      )}
-
-      <PostCompletionModal
-        open={modal === 'post'}
-        onClose={() => setModal('none')}
-        chapterNumber={chapterNumber}
-        noteCount={completedNoteCount}
-        bookId={bookId}
-        groupId={groupId}
-        groupName={props.groupName}
-        onShare={() => setModal('discussion')}
-      />
-
-      <BookCompletionModal
-        open={modal === 'book'}
-        onClose={() => setModal('none')}
-        bookTitle={bookTitle}
-        bookId={bookId}
-        groupId={groupId}
-        onShare={() => setModal('discussion')}
-      />
-
-      {/* Mounted CONDITIONALLY, not just toggled via `open`. CreateDiscussionModal
-          seeds its content with `useState(initialContent ?? '')`, and a useState
-          initializer runs only on mount. If the component stayed mounted from the
-          page's first render, it would seed from an empty note list and the
-          textarea would open blank forever — and any text typed then cancelled
-          would persist into the next open. Conditional mounting gives a fresh
-          instance, correctly seeded, every time. */}
-      {modal === 'discussion' && (
-        <CreateDiscussionModal
-          open
-          onClose={() => setModal('none')}
-          bookId={bookId}
-          currentChapter={chapterNumber}
-          groupId={groupId}
-          groupName={props.groupName}
-          initialContent={savedNotes.map((n) => n.content).join('\n\n')}
-        />
       )}
     </div>
   )

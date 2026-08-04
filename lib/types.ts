@@ -93,6 +93,8 @@ export interface ReadingGroup {
   is_paid: boolean
   price: number | null
   stripe_price_id: string | null
+  banner_image_url: string | null
+  allow_banner_change: boolean
   created_at: string
 }
 

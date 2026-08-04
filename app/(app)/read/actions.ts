@@ -186,21 +186,75 @@ export async function completeChapterWithNotes(params: {
 
   if ('error' in result) return { error: result.error }
 
-  // Re-tag this chapter's snippets rather than merging and deleting them, so
-  // revisiting the chapter still shows the individual bullets.
+  // Collapse this chapter's snippets into ONE note, matching mobile: a single
+  // 'chapter_completion' row whose body is the bullets joined together, then the
+  // individual snippet rows are dropped. A pre-existing note for this chapter is
+  // never touched or merged into — this always inserts a fresh row.
+  //
+  // Content is re-read from the DB rather than trusted from the client, and the
+  // filter is deliberately narrow (this user, this book, this chapter, snippets
+  // only) so a forged id list cannot pull in another note and delete it.
   if (params.noteIds.length > 0) {
-    const { error: tagError } = await supabase
+    const { data: snippets, error: fetchError } = await supabase
       .from('personal_notes')
-      .update({ note_type: 'chapter_completion', updated_at: new Date().toISOString() })
+      .select('id, note_content')
       .in('id', params.noteIds)
       .eq('user_id', user.id)
+      .eq('book_id', params.bookId)
+      .eq('chapter_number', params.chapterNumber)
+      .eq('note_type', 'snippet')
+      .order('created_at', { ascending: true })
 
-    // Non-fatal on purpose. The completion row and progress update have already
-    // landed, and the page loads a chapter's notes regardless of note_type — so
-    // the reader loses nothing. Returning an error here would invite a retry
-    // that inserts a SECOND chapter_completions row and double-counts the streak.
-    if (tagError) {
-      console.error('Failed to re-tag chapter notes:', tagError)
+    // Every failure below is non-fatal on purpose. The completion row and
+    // progress update have already landed, and the snippet rows still hold the
+    // reader's words — so nothing is lost. Returning an error here would invite
+    // a retry that inserts a SECOND chapter_completions row and double-counts
+    // the streak.
+    if (fetchError) {
+      console.error('Failed to load chapter snippets:', fetchError)
+    } else if (snippets && snippets.length > 0) {
+      const combined = snippets
+        .filter((n) => n.note_content)
+        .map((n) => `- ${n.note_content}`)
+        .join('\n\n')
+
+      if (combined) {
+        const readingProgressId = await findProgressId(
+          supabase,
+          user.id,
+          params.bookId,
+          params.groupId
+        )
+
+        const { error: combineError } = await supabase.from('personal_notes').insert({
+          user_id: user.id,
+          book_id: params.bookId,
+          reading_progress_id: readingProgressId,
+          chapter_number: params.chapterNumber,
+          note_content: combined,
+          note_type: 'chapter_completion',
+          is_private: true,
+        })
+
+        if (combineError) {
+          console.error('Failed to save combined chapter note:', combineError)
+        } else {
+          // Only now that the combined row exists. Deleting first would lose the
+          // notes outright if the insert then failed.
+          const { error: cleanupError } = await supabase
+            .from('personal_notes')
+            .delete()
+            .in(
+              'id',
+              snippets.map((n) => n.id)
+            )
+            .eq('user_id', user.id)
+
+          if (cleanupError) {
+            console.error('Failed to clean up chapter snippets:', cleanupError)
+          }
+        }
+      }
     }
   }
 

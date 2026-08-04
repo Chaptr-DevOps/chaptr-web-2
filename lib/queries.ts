@@ -33,7 +33,7 @@ export async function isSubscribedToGroup(groupId: string): Promise<boolean> {
   } = await supabase.auth.getUser()
   if (!user) return false
   const { data } = await supabase
-    .from('group_subscriptions')
+    .from('group_subscribers')
     .select('id')
     .eq('subscriber_id', user.id)
     .eq('group_id', groupId)

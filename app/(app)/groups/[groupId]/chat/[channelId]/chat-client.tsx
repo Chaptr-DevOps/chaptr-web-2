@@ -33,7 +33,7 @@ interface Message {
   chapter_number: number | null
   created_at: string
   user_id: string
-  parent_message_id?: string | null
+  reply_to_message_id?: string | null
   author?: {
     username: string | null
     display_name: string | null
@@ -42,7 +42,41 @@ interface Message {
     is_creator?: boolean
   }
   reactions?: Array<{ id?: string; reaction_type: string; user_id: string }>
+  // Client-only: set on the optimistic placeholder shown before the insert
+  // round-trips. Cleared when the real row replaces it.
+  pending?: boolean
+  failed?: boolean
 }
+
+const tempId = () =>
+  `temp-${typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2)}`
+
+// Remove the optimistic placeholder that corresponds to `real`. Matched by
+// temp id when we know it (the send path), otherwise by author + content (a
+// Realtime INSERT echoing back our own message).
+function dropPendingTwin(prev: Message[], real: Message, temp?: string | null): Message[] {
+  const idx = prev.findIndex((m) =>
+    !m.pending
+      ? false
+      : temp
+        ? m.id === temp
+        : m.user_id === real.user_id &&
+          m.content === real.content &&
+          (m.reply_to_message_id ?? null) === (real.reply_to_message_id ?? null),
+  )
+  return idx === -1 ? prev : [...prev.slice(0, idx), ...prev.slice(idx + 1)]
+}
+
+// Fold an authoritative server row into a list. Safe to call from both the
+// server-action response and the Realtime INSERT — whichever lands first wins
+// and the other becomes a no-op, so a message never shows up twice.
+const mergeServerMessage =
+  (real: Message, temp?: string | null) =>
+  (prev: Message[]): Message[] => {
+    const next = dropPendingTwin(prev, real, temp)
+    if (next.some((m) => m.id === real.id)) return next
+    return [...next, real]
+  }
 
 interface ChatClientProps {
   groupId: string
@@ -71,43 +105,49 @@ export function ChatClient({
   const router = useRouter()
   const [messages, setMessages] = useState<Message[]>(initialMessages)
   const [text, setText] = useState('')
-  const [isSpoiler, setIsSpoiler] = useState(false)
   const [revealedSpoilers, setRevealedSpoilers] = useState<Set<string>>(new Set())
-  const [isPending, startTransition] = useTransition()
-  
+  const [, startTransition] = useTransition()
+
   // Popovers and active items
   const [activePickerMessageId, setActivePickerMessageId] = useState<string | null>(null)
   const [activeMenuMessageId, setActiveMenuMessageId] = useState<string | null>(null)
-  
-  // Thread support
-  const [activeThreadMessage, setActiveThreadMessage] = useState<Message | null>(null)
-  const [threadReplies, setThreadReplies] = useState<Message[]>([])
-  const [loadingThread, setLoadingThread] = useState(false)
+  // Set when deleting a message that would take replies down with it
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; replyCount: number } | null>(null)
+
+  // Thread support. Only the open thread's *id* is state — the parent message
+  // and its replies are derived from `messages`, so there is exactly one source
+  // of truth (this mirrors the mobile app's `selectedMessageReplies`).
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(null)
   const [threadText, setThreadText] = useState('')
-  const [isThreadPending, startThreadTransition] = useTransition()
-  
+  const [threadIsSpoiler, setThreadIsSpoiler] = useState(false)
+  const [, startThreadTransition] = useTransition()
+
   const bottomRef = useRef<HTMLDivElement>(null)
   const threadBottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
-  const activeThreadMessageRef = useRef<Message | null>(null)
-  
+
   // My profile details for optimistic updates
   const [myProfile, setMyProfile] = useState<{ display_name: string | null; username: string | null; avatar_url: string | null } | null>(null)
 
-  // Sync ref with state to prevent stale closure in Realtime listeners
-  useEffect(() => {
-    activeThreadMessageRef.current = activeThreadMessage
-  }, [activeThreadMessage])
+  const activeThreadMessage = activeThreadId
+    ? messages.find((m) => m.id === activeThreadId) ?? null
+    : null
+  const threadReplies = activeThreadId
+    ? messages
+        .filter((m) => m.reply_to_message_id === activeThreadId)
+        .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+    : []
 
   // Auto-scroll main feed
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // Auto-scroll thread
+  // Auto-scroll thread. Keyed on the count, not the array — the array is derived
+  // and gets a new identity every render.
   useEffect(() => {
     threadBottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [threadReplies])
+  }, [threadReplies.length])
 
   // Fetch current user details
   useEffect(() => {
@@ -147,6 +187,17 @@ export function ChatClient({
         async (payload) => {
           if (payload.eventType === 'INSERT') {
             const newMsg = payload.new as any
+
+            // Apply the same chapter gate the initial fetch does — Realtime
+            // delivers every insert on the channel, so without this a message
+            // from a reader ahead of us would stream straight past the gate.
+            if (
+              channel.is_chapter_gated &&
+              !(typeof newMsg.chapter_number === 'number' && newMsg.chapter_number <= myCurrentChapter)
+            ) {
+              return
+            }
+
             // Fetch author profile
             const { data: author } = await supabase
               .from('users')
@@ -173,29 +224,13 @@ export function ChatClient({
               reactions: [],
             }
 
-            // Update main feed or thread replies
-            if (newMsg.parent_message_id) {
-              setMessages((prev) => {
-                if (prev.some((m) => m.id === newMsg.id)) return prev
-                return [...prev, formattedMsg]
-              })
-              
-              if (activeThreadMessageRef.current?.id === newMsg.parent_message_id) {
-                setThreadReplies((prev) => {
-                  if (prev.some((r) => r.id === newMsg.id)) return prev
-                  return [...prev, formattedMsg]
-                })
-              }
-            } else {
-              setMessages((prev) => {
-                if (prev.some((m) => m.id === newMsg.id)) return prev
-                return [...prev, formattedMsg]
-              })
-            }
+            // One array feeds both the channel and any open thread.
+            // mergeServerMessage also clears our own optimistic placeholder if
+            // it is still on screen.
+            setMessages(mergeServerMessage(formattedMsg))
           } else if (payload.eventType === 'DELETE') {
             const oldMsg = payload.old as any
             setMessages((prev) => prev.filter((m) => m.id !== oldMsg.id))
-            setThreadReplies((prev) => prev.filter((m) => m.id !== oldMsg.id))
           }
         },
       )
@@ -209,7 +244,7 @@ export function ChatClient({
         {
           event: '*',
           schema: 'public',
-          table: 'message_reactions',
+          table: 'channel_message_reactions',
         },
         async (payload) => {
           if (payload.eventType === 'INSERT') {
@@ -222,7 +257,6 @@ export function ChatClient({
                 return { ...msg, reactions: [...reactions, newReaction] }
               })
             setMessages(updateReactions)
-            setThreadReplies(updateReactions)
           } else if (payload.eventType === 'DELETE') {
             const oldReaction = payload.old as any
             const filterReactions = (prev: Message[]) =>
@@ -231,7 +265,6 @@ export function ChatClient({
                 return { ...msg, reactions: reactions.filter((r) => r.id !== oldReaction.id) }
               })
             setMessages(filterReactions)
-            setThreadReplies(filterReactions)
           }
         },
       )
@@ -243,117 +276,122 @@ export function ChatClient({
     }
   }, [channel.id, groupId])
 
-  // Fetch thread replies
-  const handleOpenThread = async (msg: Message) => {
-    setActiveThreadMessage(msg)
-    setLoadingThread(true)
-    const supabase = createClient()
-    
-    const { data: rawReplies } = await supabase
-      .from('channel_messages')
-      .select('id, content, is_spoiler_gated, chapter_number, created_at, user_id, parent_message_id')
-      .eq('parent_message_id', msg.id)
-      .order('created_at', { ascending: true })
+  // Replies already live in `messages` (the page fetches them alongside their
+  // parents), so opening a thread is pure state — no fetch, and an optimistic
+  // reply shows up in the panel for free.
+  const handleOpenThread = (msg: Message) => setActiveThreadId(msg.id)
 
-    if (rawReplies) {
-      const uIds = [...new Set(rawReplies.map((r) => r.user_id))]
-      
-      const { data: authors } = uIds.length
-        ? await supabase
-            .from('users')
-            .select('id, username, display_name, avatar_url')
-            .in('id', uIds)
-        : { data: [] }
+  // Which chapter a message is stamped with. Ungated channels stamp nothing;
+  // in a gated channel a reply inherits its parent's chapter so it reaches
+  // exactly the audience that could see the parent, never the replier's own
+  // (further-along) position. Mirrors mobile's GroupChatScreen.
+  const chapterStampFor = (parent: Message | null): number | null => {
+    if (!channel.is_chapter_gated) return null
+    return parent?.chapter_number ?? myCurrentChapter
+  }
 
-      const { data: memberships } = uIds.length
-        ? await supabase
-            .from('group_memberships')
-            .select('user_id, role')
-            .eq('group_id', groupId)
-            .in('user_id', uIds)
-        : { data: [] }
+  // Build the placeholder we render immediately, before the server confirms.
+  const buildOptimistic = (
+    id: string,
+    content: string,
+    spoiler: boolean,
+    replyTo: string | null,
+    chapterNumber: number | null,
+  ): Message => ({
+    id,
+    content,
+    is_spoiler_gated: spoiler,
+    chapter_number: chapterNumber,
+    created_at: new Date().toISOString(),
+    user_id: myUserId,
+    reply_to_message_id: replyTo,
+    author: {
+      username: myProfile?.username ?? null,
+      display_name: myProfile?.display_name ?? myProfile?.username ?? 'You',
+      avatar_url: myProfile?.avatar_url ?? null,
+      role: 'member',
+    },
+    reactions: [],
+    pending: true,
+  })
 
-      const replyIds = rawReplies.map((r) => r.id)
-      const { data: rawReactions } = replyIds.length
-        ? await supabase
-            .from('message_reactions')
-            .select('id, message_id, reaction_type, user_id')
-            .in('message_id', replyIds)
-        : { data: null }
+  // Fire the insert and swap the placeholder for the real row (or flag it as
+  // failed so the user can retry — never silently drop the message).
+  const deliverMessage = async (
+    id: string,
+    content: string,
+    spoiler: boolean,
+    replyTo: string | null,
+    chapterNumber: number | null,
+  ) => {
+    const res = await sendMessage(channel.id, content, spoiler, chapterNumber, replyTo)
 
-      const reactionMap = new Map<string, Array<{ id?: string; reaction_type: string; user_id: string }>>()
-      if (rawReactions) {
-        for (const r of rawReactions) {
-          if (!reactionMap.has(r.message_id)) {
-            reactionMap.set(r.message_id, [])
-          }
-          reactionMap.get(r.message_id)!.push(r)
-        }
-      }
-
-      const membershipMap = new Map((memberships ?? []).map((m) => [m.user_id, m.role]))
-      const authorMap = new Map((authors ?? []).map((a) => [a.id, a]))
-      
-      const formatted = rawReplies.map((r) => ({
-        ...r,
-        author: authorMap.get(r.user_id)
-          ? {
-              ...authorMap.get(r.user_id)!,
-              role: membershipMap.get(r.user_id) || 'member',
-            }
-          : undefined,
-        reactions: reactionMap.get(r.id) || [],
-      })) as Message[]
-      
-      setThreadReplies(formatted)
-    } else {
-      setThreadReplies([])
+    if (!res || 'error' in res || !res.message) {
+      setMessages((prev) =>
+        prev.map((m) => (m.id === id ? { ...m, pending: false, failed: true } : m)),
+      )
+      return
     }
-    setLoadingThread(false)
+
+    const real: Message = {
+      ...(res.message as Message),
+      author: {
+        username: myProfile?.username ?? null,
+        display_name: myProfile?.display_name ?? myProfile?.username ?? 'You',
+        avatar_url: myProfile?.avatar_url ?? null,
+        role: 'member',
+      },
+      reactions: [],
+    }
+    setMessages(mergeServerMessage(real, id))
   }
 
   // Send a new top-level message
   function handleSend(e: React.FormEvent) {
     e.preventDefault()
-    if (!text.trim() || isPending) return
+    if (!text.trim()) return
     const content = text.trim()
+    const id = tempId()
+    const chapterNumber = chapterStampFor(null)
     setText('')
+    setMessages((prev) => [...prev, buildOptimistic(id, content, false, null, chapterNumber)])
     startTransition(async () => {
-      await sendMessage(channel.id, content, isSpoiler, null)
+      await deliverMessage(id, content, false, null, chapterNumber)
+    })
+  }
+
+  // Retry a message whose insert failed
+  const handleRetryMessage = (msg: Message) => {
+    setMessages((prev) =>
+      prev.map((m) => (m.id === msg.id ? { ...m, pending: true, failed: false } : m)),
+    )
+    startTransition(async () => {
+      await deliverMessage(
+        msg.id,
+        msg.content ?? '',
+        msg.is_spoiler_gated,
+        msg.reply_to_message_id ?? null,
+        msg.chapter_number,
+      )
     })
   }
 
   // Send a reply in the current thread
   const handleSendThreadReply = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!threadText.trim() || isThreadPending || !activeThreadMessage) return
+    if (!threadText.trim() || !activeThreadMessage) return
     const content = threadText.trim()
+    const parentId = activeThreadMessage.id
+    const spoiler = threadIsSpoiler
+    const id = tempId()
+    const chapterNumber = chapterStampFor(activeThreadMessage)
     setThreadText('')
-    
-    // Add optimistically to both messages and threadReplies
-    const tempReplyId = Math.random().toString()
-    const newReply: Message = {
-      id: tempReplyId,
-      content,
-      is_spoiler_gated: false,
-      chapter_number: null,
-      created_at: new Date().toISOString(),
-      user_id: myUserId,
-      parent_message_id: activeThreadMessage.id,
-      author: {
-        username: myProfile?.username || 'me',
-        display_name: myProfile?.display_name || 'Me',
-        avatar_url: myProfile?.avatar_url || null,
-        role: 'member',
-      },
-      reactions: []
-    }
-    
-    setMessages(prev => [...prev, newReply])
-    setThreadReplies(prev => [...prev, newReply])
-    
+    setThreadIsSpoiler(false)
+
+    setMessages((prev) => [...prev, buildOptimistic(id, content, spoiler, parentId, chapterNumber)])
+
     startThreadTransition(async () => {
-      await sendMessage(channel.id, content, false, null, activeThreadMessage.id)
+      await deliverMessage(id, content, spoiler, parentId, chapterNumber)
     })
   }
 
@@ -372,82 +410,81 @@ export function ChatClient({
   }
 
   // Handle emoji reaction clicks (toggle)
+  //
+  // channel_message_reactions is unique on (message_id, user_id) — a user holds
+  // at most one reaction per message. There is no UPDATE policy on the table, so
+  // switching emoji is delete-then-insert, not an update.
   const handleReactionPress = async (messageId: string, emoji: string) => {
-    // Optimistic toggle
-    setMessages((prev) =>
+    // Optimistic toggle: drop my existing reaction, then re-add unless I was
+    // clicking the same emoji off again.
+    const applyToggle = (prev: Message[]) =>
       prev.map((msg) => {
         if (msg.id !== messageId) return msg
         const existingReactions = msg.reactions || []
-        const index = existingReactions.findIndex(
-          (r) => r.reaction_type === emoji && r.user_id === myUserId,
-        )
-        let newReactions
-        if (index > -1) {
-          newReactions = existingReactions.filter((_, i) => i !== index)
-        } else {
-          newReactions = [...existingReactions, { reaction_type: emoji, user_id: myUserId }]
-        }
+        const mine = existingReactions.find((r) => r.user_id === myUserId)
+        const withoutMine = existingReactions.filter((r) => r.user_id !== myUserId)
+        const newReactions =
+          mine?.reaction_type === emoji
+            ? withoutMine
+            : [...withoutMine, { reaction_type: emoji, user_id: myUserId }]
         return { ...msg, reactions: newReactions }
-      }),
-    )
+      })
 
-    // Sync thread state if open
-    setThreadReplies((prev) =>
-      prev.map((msg) => {
-        if (msg.id !== messageId) return msg
-        const existingReactions = msg.reactions || []
-        const index = existingReactions.findIndex(
-          (r) => r.reaction_type === emoji && r.user_id === myUserId,
-        )
-        let newReactions
-        if (index > -1) {
-          newReactions = existingReactions.filter((_, i) => i !== index)
-        } else {
-          newReactions = [...existingReactions, { reaction_type: emoji, user_id: myUserId }]
-        }
-        return { ...msg, reactions: newReactions }
-      }),
-    )
+    setMessages(applyToggle)
 
     const supabase = createClient()
     try {
       const { data: existing } = await supabase
-        .from('message_reactions')
-        .select('id')
+        .from('channel_message_reactions')
+        .select('id, reaction_type')
         .eq('message_id', messageId)
         .eq('user_id', myUserId)
-        .eq('reaction_type', emoji)
         .maybeSingle()
 
       if (existing) {
-        await supabase.from('message_reactions').delete().eq('id', existing.id)
-      } else {
-        await supabase.from('message_reactions').insert({
+        await supabase.from('channel_message_reactions').delete().eq('id', existing.id)
+      }
+
+      if (existing?.reaction_type !== emoji) {
+        await supabase.from('channel_message_reactions').insert({
           message_id: messageId,
           user_id: myUserId,
           reaction_type: emoji,
         })
       }
     } catch (err) {
-      // Table doesn't exist or permission error, handled optimistically
+      // Handled optimistically
     }
   }
 
-  // Handle message deletion
+  // Handle message deletion. The reply_to_message_id FK is ON DELETE CASCADE, so
+  // deleting a thread parent deletes its replies server-side — mirror that here
+  // instead of waiting for the per-row Realtime DELETE events.
   const handleDeleteMessage = async (messageId: string) => {
     const supabase = createClient()
     try {
       const { error } = await supabase.from('channel_messages').delete().eq('id', messageId)
       if (!error) {
-        setMessages((prev) => prev.filter((m) => m.id !== messageId))
-        setThreadReplies((prev) => prev.filter((m) => m.id !== messageId))
-        if (activeThreadMessage?.id === messageId) {
-          setActiveThreadMessage(null)
+        setMessages((prev) =>
+          prev.filter((m) => m.id !== messageId && m.reply_to_message_id !== messageId),
+        )
+        if (activeThreadId === messageId) {
+          setActiveThreadId(null)
         }
       }
     } catch (err) {
       // Handled silently
     }
+  }
+
+  // Route a delete through a confirmation when replies would be destroyed too
+  const requestDeleteMessage = (messageId: string) => {
+    const replyCount = messages.filter((m) => m.reply_to_message_id === messageId).length
+    if (replyCount === 0) {
+      handleDeleteMessage(messageId)
+      return
+    }
+    setConfirmDelete({ id: messageId, replyCount })
   }
 
   // Handle message reporting
@@ -514,11 +551,13 @@ export function ChatClient({
   }
 
   // Filter out replies to show top-level channel feed only
-  const mainFeedMessages = messages.filter((m) => !m.parent_message_id)
+  const mainFeedMessages = messages.filter((m) => !m.reply_to_message_id)
 
   // Inner renderer for a message row (shared by feed and thread detail)
   const renderMessageRow = (msg: Message, isThreadParent = false) => {
     const isOwn = msg.user_id === myUserId
+    // Not yet a real row: reactions/threads/deletes have nothing to point at.
+    const isUnsent = msg.pending || msg.failed
     const showSpoiler = msg.is_spoiler_gated && !revealedSpoilers.has(msg.id)
     const authorName = msg.author?.display_name ?? msg.author?.username ?? 'Unknown'
     const initial = authorName[0]?.toUpperCase() ?? '?'
@@ -536,7 +575,7 @@ export function ChatClient({
     }, {} as Record<string, { count: number; userIds: string[] }>)
 
     // replies meta computed on messages list
-    const replies = messages.filter((r) => r.parent_message_id === msg.id)
+    const replies = messages.filter((r) => r.reply_to_message_id === msg.id)
     const replyCount = replies.length
     const replyUsersMap = new Map<string, any>()
     replies.forEach((r) => {
@@ -555,7 +594,8 @@ export function ChatClient({
         key={msg.id}
         className={cn(
           "flex gap-3 px-4 py-2 hover:bg-[var(--surface-elevated)]/40 transition-colors rounded-lg relative group",
-          isThreadParent && "bg-[var(--surface-elevated)]/30 border border-[var(--border-main)] rounded-xl"
+          isThreadParent && "bg-[var(--surface-elevated)]/30 border border-[var(--border-main)] rounded-xl",
+          msg.pending && "opacity-60"
         )}
       >
         {/* Avatar */}
@@ -584,7 +624,24 @@ export function ChatClient({
                 Host
               </Badge>
             )}
-            <span className="text-[11px] text-[var(--text-tertiary)]">{formatTime(msg.created_at)}</span>
+            {msg.pending ? (
+              <span className="inline-flex items-center gap-1 text-[11px] text-[var(--text-tertiary)]">
+                <Loader2 className="h-2.5 w-2.5 animate-spin" /> Sending…
+              </span>
+            ) : msg.failed ? (
+              <span className="inline-flex items-center gap-1.5 text-[11px] text-red-600 dark:text-red-400 font-semibold">
+                Not sent
+                <button
+                  type="button"
+                  onClick={() => handleRetryMessage(msg)}
+                  className="underline hover:no-underline"
+                >
+                  Retry
+                </button>
+              </span>
+            ) : (
+              <span className="text-[11px] text-[var(--text-tertiary)]">{formatTime(msg.created_at)}</span>
+            )}
           </div>
 
           {/* Text content */}
@@ -631,7 +688,7 @@ export function ChatClient({
             })}
 
             {/* Replies inline preview */}
-            {!isThreadParent && !msg.parent_message_id && replyCount > 0 && (
+            {!isThreadParent && !msg.reply_to_message_id && replyCount > 0 && (
               <button
                 onClick={() => handleOpenThread(msg)}
                 className="inline-flex items-center gap-1.5 text-xs text-primary font-semibold hover:underline ml-2 transition-all"
@@ -668,8 +725,11 @@ export function ChatClient({
           </div>
         </div>
 
-        {/* Hover action bar (Slack style) */}
-        <div className="absolute right-4 top-2 hidden group-hover:flex items-center gap-1 bg-[var(--surface)] border border-[var(--border-main)] rounded-lg shadow-sm px-1.5 py-1 z-10">
+        {/* Hover action bar (Slack style) — hidden until the row is a real message */}
+        <div className={cn(
+          "absolute right-4 top-2 hidden items-center gap-1 bg-[var(--surface)] border border-[var(--border-main)] rounded-lg shadow-sm px-1.5 py-1 z-10",
+          !isUnsent && "group-hover:flex"
+        )}>
           {['❤️', '🔥', '😂'].map((emoji) => (
             <button
               key={emoji}
@@ -690,7 +750,7 @@ export function ChatClient({
           >
             <PlusCircle className="h-4 w-4" />
           </button>
-          {!isThreadParent && !msg.parent_message_id && (
+          {!isThreadParent && !msg.reply_to_message_id && (
             <button
               onClick={() => handleOpenThread(msg)}
               className="hover:bg-[var(--surface-elevated)] p-1 rounded text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
@@ -760,7 +820,7 @@ export function ChatClient({
             {msg.user_id === myUserId && (
               <button
                 onClick={() => {
-                  handleDeleteMessage(msg.id)
+                  requestDeleteMessage(msg.id)
                   setActiveMenuMessageId(null)
                 }}
                 className="w-full text-left px-3 py-1.5 hover:bg-[var(--surface-elevated)] text-red-600 hover:text-red-500 font-semibold border-t border-[var(--border-main)] mt-1.5 pt-1.5"
@@ -824,7 +884,7 @@ export function ChatClient({
           {channel.is_chapter_gated && (
             <span className="ml-auto text-xs text-[var(--text-secondary)] flex items-center gap-1">
               <BookOpen className="h-3.5 w-3.5" />
-              You&apos;re on Ch. {myCurrentChapter}
+              Read through Ch. {myCurrentChapter}
             </span>
           )}
         </header>
@@ -858,25 +918,15 @@ export function ChatClient({
               className="w-full resize-none bg-transparent text-sm text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none"
               style={{ maxHeight: '120px' }}
             />
-            {/* Spoiler toggle */}
-            <div className="flex items-center gap-2 pt-1.5 border-t border-[var(--border-main)] mt-1.5">
-              <button
-                type="button"
-                onClick={() => setIsSpoiler((v) => !v)}
-                className={cn(
-                  'inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[11px] font-semibold transition-colors',
-                  isSpoiler
-                    ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
-                    : 'text-[var(--text-tertiary)] hover:text-[var(--text-primary)]',
-                )}
-              >
-                {isSpoiler ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
-                {isSpoiler ? 'Spoiler ON' : 'Mark as spoiler'}
-              </button>
-            </div>
+            {/* No spoiler toggle here — a top-level message is stamped with your
+                own chapter, so the gate already covers it. Replies inherit the
+                parent's chapter and are the one place that isn't true; the
+                toggle lives in the thread composer instead. */}
           </div>
-          <Button type="submit" size="icon" disabled={isPending || !text.trim()} className="h-10 w-10 shrink-0 rounded-xl">
-            {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+          {/* Not disabled while in flight — the message is already on screen as
+              a pending row, so the composer stays free for the next one. */}
+          <Button type="submit" size="icon" disabled={!text.trim()} className="h-10 w-10 shrink-0 rounded-xl">
+            <Send className="h-4 w-4" />
           </Button>
         </form>
       </div>
@@ -891,7 +941,7 @@ export function ChatClient({
               <p className="text-[10px] text-[var(--text-tertiary)]">#{channel.name}</p>
             </div>
             <button
-              onClick={() => setActiveThreadMessage(null)}
+              onClick={() => setActiveThreadId(null)}
               className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)] p-1 rounded-lg hover:bg-[var(--surface-elevated)] transition-colors"
             >
               <X className="h-4.5 w-4.5" />
@@ -910,13 +960,8 @@ export function ChatClient({
               <span className="h-px bg-[var(--border-main)] flex-1" />
             </div>
 
-            {/* Loading or replies list */}
-            {loadingThread ? (
-              <div className="flex justify-center items-center py-8 text-[var(--text-tertiary)]">
-                <Loader2 className="h-6 w-6 animate-spin mr-2" />
-                <span className="text-sm">Loading replies...</span>
-              </div>
-            ) : threadReplies.length === 0 ? (
+            {/* Replies list — derived from `messages`, so there is nothing to load */}
+            {threadReplies.length === 0 ? (
               <div className="text-center text-xs text-[var(--text-tertiary)] py-8 font-medium">
                 No replies yet. Start the conversation!
               </div>
@@ -943,17 +988,85 @@ export function ChatClient({
                 className="w-full resize-none bg-transparent text-sm text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none"
                 style={{ maxHeight: '90px' }}
               />
+              {/* A reply inherits the parent's chapter, so it can reach readers
+                  who are behind you. This is the one composer where marking a
+                  spoiler earns its keep. */}
+              <div className="flex items-center gap-2 pt-1.5 border-t border-[var(--border-main)] mt-1.5">
+                <button
+                  type="button"
+                  onClick={() => setThreadIsSpoiler((v) => !v)}
+                  className={cn(
+                    'inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[11px] font-semibold transition-colors',
+                    threadIsSpoiler
+                      ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                      : 'text-[var(--text-tertiary)] hover:text-[var(--text-primary)]',
+                  )}
+                >
+                  {threadIsSpoiler ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                  {threadIsSpoiler ? 'Spoiler ON' : 'Mark as spoiler'}
+                </button>
+              </div>
             </div>
             <Button
               type="submit"
               size="icon"
-              disabled={isThreadPending || !threadText.trim()}
+              disabled={!threadText.trim()}
               className="h-9 w-9 shrink-0 rounded-xl"
             >
-              {isThreadPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              <Send className="h-4 w-4" />
             </Button>
           </form>
         </aside>
+      )}
+
+      {/* Destructive-delete confirmation — only shown when replies are at stake */}
+      {confirmDelete && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-in fade-in duration-150"
+          onClick={() => setConfirmDelete(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            role="alertdialog"
+            aria-modal="true"
+            className="w-full max-w-sm rounded-2xl border border-[var(--border-main)] bg-[var(--surface)] p-5 shadow-xl animate-in zoom-in-95 duration-150"
+          >
+            <div className="flex items-start gap-3">
+              <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--error-bg)] border border-[var(--error-border)]">
+                <AlertTriangle className="h-4.5 w-4.5 text-[var(--error)]" />
+              </div>
+              <div className="min-w-0">
+                <h2 className="font-serif text-lg font-bold text-[var(--text-primary)]">
+                  Delete this message?
+                </h2>
+                <p className="mt-1.5 text-sm leading-relaxed text-[var(--text-secondary)]">
+                  This message has{' '}
+                  <span className="font-semibold text-[var(--text-primary)]">
+                    {confirmDelete.replyCount}{' '}
+                    {confirmDelete.replyCount === 1 ? 'reply' : 'replies'}
+                  </span>
+                  . Deleting it will permanently delete{' '}
+                  {confirmDelete.replyCount === 1 ? 'that reply' : 'all of them'} from the thread.
+                </p>
+              </div>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => setConfirmDelete(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => {
+                  handleDeleteMessage(confirmDelete.id)
+                  setConfirmDelete(null)
+                }}
+              >
+                Delete {confirmDelete.replyCount === 1 ? 'both' : 'all'}
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

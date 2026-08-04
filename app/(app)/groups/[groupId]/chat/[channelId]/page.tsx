@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { getProfile } from '@/lib/queries'
+import { getProfile, isSubscribedToGroup } from '@/lib/queries'
 import { ChatClient } from './chat-client'
 
 export const dynamic = 'force-dynamic'
@@ -30,7 +30,7 @@ export default async function ChatPage({ params }: PageProps) {
   // Fetch the group
   const { data: group } = await supabase
     .from('reading_groups')
-    .select('name, current_book_id, created_by')
+    .select('name, current_book_id, created_by, is_paid')
     .eq('id', groupId)
     .maybeSingle()
 
@@ -46,12 +46,26 @@ export default async function ChatPage({ params }: PageProps) {
 
   if (!channel) redirect(`/groups/${groupId}`)
 
+  // Premium gate — enforced here, not just in the group page's channel list,
+  // so a premium channel can't be reached by deep-linking to its URL.
+  const hasPremiumAccess =
+    group.created_by === profile.id ||
+    membership.role === 'admin' ||
+    (await isSubscribedToGroup(groupId))
+
+  if (channel.is_premium && !hasPremiumAccess) {
+    redirect(`/groups/${groupId}/subscribe`)
+  }
+
   // Fetch all channels in this group for sidebar
-  const { data: allChannels } = await supabase
+  const { data: rawChannels } = await supabase
     .from('group_channels')
-    .select('id, name, channel_type')
+    .select('id, name, channel_type, is_premium')
     .eq('group_id', groupId)
     .order('created_at', { ascending: true })
+
+  // Don't advertise channels the viewer can't open
+  const allChannels = (rawChannels ?? []).filter((c) => hasPremiumAccess || !c.is_premium)
 
   // Fetch user's current chapter for this group's book
   const { data: myProgress } = group.current_book_id
@@ -63,45 +77,28 @@ export default async function ChatPage({ params }: PageProps) {
         .maybeSingle()
     : { data: null }
 
-  const myCurrentChapter = myProgress?.current_chapter ?? 0
+  // Chapters *completed*, not the chapter in progress — matches the mobile app
+  // (GroupChatScreen.tsx: `Math.max((currentChapter ?? 1) - 1, 0)`). Reading
+  // chapter 5 means you've finished 4, so chapter-5 talk is still a spoiler.
+  const myCurrentChapter = Math.max((myProgress?.current_chapter ?? 1) - 1, 0)
 
   // Fetch messages, chapter-gated logic applied server-side
   let messagesQuery = supabase
     .from('channel_messages')
-    .select('id, content, is_spoiler_gated, chapter_number, created_at, user_id, parent_message_id')
+    .select('id, content, is_spoiler_gated, chapter_number, created_at, user_id, reply_to_message_id')
     .eq('channel_id', channelId)
     .order('created_at', { ascending: true })
     .limit(100)
 
-  // If chapter-gated, only show messages from chapters <= user's current chapter
+  // If chapter-gated, only show messages at or below the user's progress.
+  // Deliberately a plain .lte, matching mobile's getChannelMessages: an unstamped
+  // (null) message is NOT visible here. The old `chapter_number.is.null` escape
+  // hatch let every web-written message bypass the gate entirely.
   if (channel.is_chapter_gated) {
-    messagesQuery = messagesQuery.or(
-      `chapter_number.is.null,chapter_number.lte.${myCurrentChapter}`,
-    )
+    messagesQuery = messagesQuery.lte('chapter_number', myCurrentChapter)
   }
 
-  let { data: rawMessages, error: queryError } = await messagesQuery
-
-  // Fallback: if query fails (likely due to missing parent_message_id column if migration hasn't been run yet)
-  if (queryError || !rawMessages) {
-    let fallbackQuery = supabase
-      .from('channel_messages')
-      .select('id, content, is_spoiler_gated, chapter_number, created_at, user_id')
-      .eq('channel_id', channelId)
-      .order('created_at', { ascending: true })
-      .limit(100)
-
-    if (channel.is_chapter_gated) {
-      fallbackQuery = fallbackQuery.or(
-        `chapter_number.is.null,chapter_number.lte.${myCurrentChapter}`,
-      )
-    }
-    const fallbackResult = await fallbackQuery
-    rawMessages = (fallbackResult.data ?? []).map((m) => ({
-      ...m,
-      parent_message_id: null,
-    }))
-  }
+  const { data: rawMessages } = await messagesQuery
 
   // Fetch author profiles for all unique user_ids in messages
   const userIds = [...new Set((rawMessages ?? []).map((m) => m.user_id))]
@@ -125,7 +122,7 @@ export default async function ChatPage({ params }: PageProps) {
   const messageIds = (rawMessages ?? []).map((m) => m.id)
   const { data: rawReactions } = messageIds.length
     ? await supabase
-        .from('message_reactions')
+        .from('channel_message_reactions')
         .select('message_id, reaction_type, user_id')
         .in('message_id', messageIds)
     : { data: null } // using null or empty array safely
@@ -162,7 +159,7 @@ export default async function ChatPage({ params }: PageProps) {
       groupId={groupId}
       groupName={group.name}
       channel={channel}
-      channels={allChannels ?? []}
+      channels={allChannels}
       initialMessages={messages}
       myUserId={profile.id}
       myCurrentChapter={myCurrentChapter}

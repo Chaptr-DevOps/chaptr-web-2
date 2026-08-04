@@ -43,9 +43,34 @@ export async function updateSession(request: NextRequest) {
 
   const path = request.nextUrl.pathname
 
-  const publicRoutes = ['/signin', '/signup', '/auth', '/forgot-password']
+  // API routes handle their own auth (e.g. Stripe webhook signature
+  // verification) — Stripe's server-to-server calls carry no session cookie,
+  // so redirecting them to /signin here would silently break the webhook.
+  if (path.startsWith('/api')) {
+    return supabaseResponse
+  }
+
+  const publicRoutes = [
+    '/signin',
+    '/signup',
+    '/auth',
+    '/forgot-password',
+    // Commerce pages must be reachable logged out: Stripe reviews these URLs
+    // without an account, and a login wall is a common rejection reason.
+    '/pricing',
+    '/terms',
+    '/privacy',
+    '/refunds',
+  ]
+
+  // /groups/<id>/subscribe is the public sales page for a paid group. Every
+  // other /groups/* route stays behind auth.
+  const isPublicSubscribePage = /^\/groups\/[^/]+\/subscribe\/?$/.test(path)
+
   const isPublic =
-    path === '/' || publicRoutes.some((p) => path === p || path.startsWith(p + '/'))
+    path === '/' ||
+    isPublicSubscribePage ||
+    publicRoutes.some((p) => path === p || path.startsWith(p + '/'))
 
   // Unauthenticated users hitting a protected route go to /signin
   if (!user && !isPublic) {

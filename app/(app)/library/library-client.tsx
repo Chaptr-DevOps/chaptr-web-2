@@ -21,7 +21,7 @@ import { Button, buttonVariants } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
-  updateBookShelf,
+  setBookShelf,
   removeBookFromLibrary,
   createShelf,
   updateShelf,
@@ -29,11 +29,22 @@ import {
   addBookToCustomShelf,
   removeBookFromCustomShelf,
 } from './actions'
-import { SHELF_TABS } from '@/lib/types'
-import type { CustomShelf, ShelfBookWithBook } from '@/lib/types'
+import { LIBRARY_TABS, SHELF_OPTIONS } from '@/lib/types'
+import type {
+  Book,
+  CustomShelf,
+  ShelfBookWithBook,
+  ShelfType,
+  UserLibraryItemWithBook,
+} from '@/lib/types'
 import { cn } from '@/lib/utils'
 
-interface ReadingProgressWithBook {
+type BookSummary = Pick<
+  Book,
+  'id' | 'title' | 'author' | 'total_pages' | 'total_chapters' | 'cover_image_url'
+>
+
+interface ReadingProgressRow {
   id: string
   user_id: string
   book_id: string
@@ -42,22 +53,27 @@ interface ReadingProgressWithBook {
   progress_percentage: number
   status: string
   created_at: string
-  book: {
-    id: string
-    title: string
-    author: string | null
-    total_pages: number | null
-    total_chapters: number | null
-    cover_image_url: string | null
-  }
+  book: BookSummary
+}
+
+// One card, whichever tab produced it. The "Reading" tab is built from
+// reading_progress, so shelfType may be null — the book is being read without
+// having been filed on a shelf.
+interface LibraryCard {
+  bookId: string
+  book: BookSummary
+  shelfType: ShelfType | null
+  progress: ReadingProgressRow | null
 }
 
 export function LibraryClient({
   initialItems,
+  initialProgress,
   initialShelves,
   initialShelfBooksByShelf,
 }: {
-  initialItems: ReadingProgressWithBook[]
+  initialItems: UserLibraryItemWithBook[]
+  initialProgress: ReadingProgressRow[]
   initialShelves: CustomShelf[]
   initialShelfBooksByShelf: Record<string, ShelfBookWithBook[]>
 }) {
@@ -81,19 +97,34 @@ export function LibraryClient({
     ? initialShelves.find((s) => s.id === activeShelfId) ?? null
     : null
 
-  // Lookup so shelf-view cards can show tracking status/progress when it exists
-  const progressByBookId = new Map(initialItems.map((item) => [item.book_id, item]))
+  // Lookups so either tab kind can fill in the half it doesn't own
+  const progressByBookId = new Map(initialProgress.map((p) => [p.book_id, p]))
+  const shelfByBookId = new Map(initialItems.map((item) => [item.book_id, item.shelf_type]))
 
-  // Filter items based on active tab and search query
-  const filteredItems = !isShelfTab
-    ? initialItems.filter((item) => {
-        const matchesTab = item.status === activeTab
-        const matchesSearch =
-          item.book.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          (item.book.author?.toLowerCase() ?? '').includes(searchQuery.toLowerCase())
-        return matchesTab && matchesSearch
-      })
-    : []
+  const matchesSearch = (book: BookSummary) =>
+    book.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (book.author?.toLowerCase() ?? '').includes(searchQuery.toLowerCase())
+
+  // 'reading' comes from reading_progress; every other tab is a real shelf.
+  const filteredItems: LibraryCard[] = isShelfTab
+    ? []
+    : activeTab === 'reading'
+      ? initialProgress
+          .filter((p) => p.status === 'reading' && p.book && matchesSearch(p.book))
+          .map((p) => ({
+            bookId: p.book_id,
+            book: p.book,
+            shelfType: shelfByBookId.get(p.book_id) ?? null,
+            progress: p,
+          }))
+      : initialItems
+          .filter((item) => item.shelf_type === activeTab && matchesSearch(item.book))
+          .map((item) => ({
+            bookId: item.book_id,
+            book: item.book,
+            shelfType: item.shelf_type,
+            progress: progressByBookId.get(item.book_id) ?? null,
+          }))
 
   const filteredShelfBooks =
     isShelfTab && activeShelfId
@@ -105,10 +136,10 @@ export function LibraryClient({
         })
       : []
 
-  async function handleShelfChange(progressId: string, newStatus: string) {
-    setActioningId(progressId)
+  async function handleShelfChange(bookId: string, newShelf: ShelfType) {
+    setActioningId(bookId)
     startTransition(async () => {
-      const res = await updateBookShelf(progressId, newStatus)
+      const res = await setBookShelf(bookId, newShelf)
       if (res.error) {
         alert(res.error)
       } else {
@@ -118,13 +149,13 @@ export function LibraryClient({
     })
   }
 
-  async function handleRemove(progressId: string) {
-    if (!confirm('Are you sure you want to remove this book from your library? Your progress and history will be deleted.')) {
+  async function handleRemove(bookId: string) {
+    if (!confirm('Remove this book from your shelves? Your reading progress and notes will be kept.')) {
       return
     }
-    setActioningId(progressId)
+    setActioningId(bookId)
     startTransition(async () => {
-      const res = await removeBookFromLibrary(progressId)
+      const res = await removeBookFromLibrary(bookId)
       if (res.error) {
         alert(res.error)
       } else {
@@ -230,8 +261,11 @@ export function LibraryClient({
       {/* Tabs and Actions bar */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-[var(--border-main)] pb-2">
         <div className="flex gap-2 overflow-x-auto scrollbar-none">
-          {SHELF_TABS.map((tab) => {
-            const count = initialItems.filter((item) => item.status === tab.key).length
+          {LIBRARY_TABS.map((tab) => {
+            const count =
+              tab.key === 'reading'
+                ? initialProgress.filter((p) => p.status === 'reading').length
+                : initialItems.filter((item) => item.shelf_type === tab.key).length
             return (
               <button
                 key={tab.key}
@@ -396,7 +430,7 @@ export function LibraryClient({
             <h3 className="font-serif text-lg font-medium text-[var(--text-primary)] mb-1">
               {searchQuery ? 'No matches' : 'This collection is empty'}
             </h3>
-            <p className="text-sm text-[var(--text-secondary)] max-w-sm mb-6">
+            <p className="text-sm text-[var(--text-secondary)] max-w-xl mb-6">
               {searchQuery
                 ? `No matching books in "${activeShelf?.name ?? 'this collection'}".`
                 : 'Add books to this collection from any book card below, or from the Add Book page.'}
@@ -411,10 +445,12 @@ export function LibraryClient({
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {filteredShelfBooks.map((sb) => {
               const matched = progressByBookId.get(sb.book_id)
-              const isCurrentActioning = actioningId === sb.id && isShelfPending
+              // shelf_books has no id column — a row is (shelf_id, book_id)
+              const rowKey = `${sb.shelf_id}:${sb.book_id}`
+              const isCurrentActioning = actioningId === rowKey && isShelfPending
               return (
                 <Card
-                  key={sb.id}
+                  key={rowKey}
                   className={cn(
                     'flex flex-col overflow-hidden transition-all duration-200 border-[var(--border-main)] hover:shadow-md hover:border-primary/30',
                     isCurrentActioning && 'opacity-65 pointer-events-none'
@@ -474,7 +510,7 @@ export function LibraryClient({
                   <div className="flex items-center justify-between border-t border-[var(--border-main)] bg-[var(--surface-elevated)]/40 px-3 py-2 text-xs">
                     <button
                       type="button"
-                      onClick={() => handleRemoveFromShelf(sb.shelf_id, sb.book_id, sb.id)}
+                      onClick={() => handleRemoveFromShelf(sb.shelf_id, sb.book_id, rowKey)}
                       className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[var(--border-main)] bg-[var(--surface)] text-[var(--text-secondary)] hover:text-[var(--error)] hover:border-[var(--error)]/30 transition-colors"
                     >
                       {isCurrentActioning ? (
@@ -506,10 +542,12 @@ export function LibraryClient({
           <h3 className="font-serif text-lg font-medium text-[var(--text-primary)] mb-1">
             No books found
           </h3>
-          <p className="text-sm text-[var(--text-secondary)] max-w-sm mb-6">
+          <p className="text-sm text-[var(--text-secondary)] max-w-xl mb-6">
             {searchQuery
-              ? `No matching books on your "${SHELF_TABS.find((t) => t.key === activeTab)?.label}" shelf.`
-              : `Your "${SHELF_TABS.find((t) => t.key === activeTab)?.label}" shelf is empty. Add books to start tracking.`}
+              ? `No matching books in "${LIBRARY_TABS.find((t) => t.key === activeTab)?.label}".`
+              : activeTab === 'reading'
+                ? "You're not reading anything right now. Start a book to see it here."
+                : `Your "${LIBRARY_TABS.find((t) => t.key === activeTab)?.label}" shelf is empty. Add books to start tracking.`}
           </p>
           {!searchQuery && (
             <Button size="sm" onClick={() => router.push('/library/add')}>
@@ -520,10 +558,11 @@ export function LibraryClient({
       ) : (
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {filteredItems.map((item) => {
-            const isCurrentActioning = actioningId === item.id && isPending
+            const isCurrentActioning = actioningId === item.bookId && isPending
+            const itemProgress = item.progress
             return (
               <Card
-                key={item.id}
+                key={item.bookId}
                 className={cn(
                   'flex flex-col overflow-hidden transition-all duration-200 border-[var(--border-main)] hover:shadow-md hover:border-primary/30',
                   isCurrentActioning && 'opacity-65 pointer-events-none'
@@ -548,31 +587,32 @@ export function LibraryClient({
                       </p>
                     </div>
 
-                    {/* Progress tracking for reading tab */}
-                    {item.status === 'reading' && (
+                    {/* Progress bar whenever the book is actually being tracked */}
+                    {itemProgress && itemProgress.status === 'reading' && (
                       <div className="mt-2 space-y-1">
                         <div className="flex items-center justify-between text-xs text-[var(--text-tertiary)]">
-                          <span>Chapter {item.current_chapter}</span>
-                          <span>{Math.round(item.progress_percentage)}%</span>
+                          <span>Chapter {itemProgress.current_chapter}</span>
+                          <span>{Math.round(itemProgress.progress_percentage)}%</span>
                         </div>
-                        <Progress value={item.progress_percentage} className="h-1.5" />
+                        <Progress value={itemProgress.progress_percentage} className="h-1.5" />
                       </div>
                     )}
 
-                    {/* Stats for other tabs */}
-                    {item.status === 'finished' && (
+                    {/* Shelf badge. Absent on a book that is being read but has
+                        not been filed on any shelf. */}
+                    {item.shelfType === 'completed' && (
                       <span className="inline-flex text-[11px] font-semibold text-[var(--success)] bg-[var(--success)]/10 px-2 py-0.5 rounded-full w-max mt-2">
                         Finished
                       </span>
                     )}
-                    {item.status === 'tbr' && (
+                    {item.shelfType === 'tbr' && (
                       <span className="inline-flex text-[11px] font-semibold text-primary bg-primary/10 px-2 py-0.5 rounded-full w-max mt-2">
                         Want to Read
                       </span>
                     )}
-                    {item.status === 'dnf' && (
+                    {item.shelfType === 'shelved' && (
                       <span className="inline-flex text-[11px] font-semibold text-[var(--text-tertiary)] bg-[var(--border-main)] px-2 py-0.5 rounded-full w-max mt-2">
-                        Did Not Finish
+                        Shelved
                       </span>
                     )}
                   </div>
@@ -588,15 +628,15 @@ export function LibraryClient({
                         <ChevronDown className="h-3 w-3" />
                       </button>
                       <div className="absolute left-0 bottom-full mb-1 z-50 hidden group-hover:block w-36 rounded-xl border border-[var(--border-main)] bg-[var(--surface)] shadow-lg py-1">
-                        {SHELF_TABS.map((t) => (
+                        {SHELF_OPTIONS.map((t) => (
                           <button
                             key={t.key}
                             type="button"
-                            disabled={t.key === item.status}
-                            onClick={() => handleShelfChange(item.id, t.key)}
+                            disabled={t.key === item.shelfType}
+                            onClick={() => handleShelfChange(item.bookId, t.key)}
                             className={cn(
                               'w-full text-left px-3 py-2 text-xs hover:bg-[var(--surface-elevated)] transition-colors',
-                              t.key === item.status ? 'text-primary font-semibold pointer-events-none bg-primary/5' : 'text-[var(--text-secondary)]'
+                              t.key === item.shelfType ? 'text-primary font-semibold pointer-events-none bg-primary/5' : 'text-[var(--text-secondary)]'
                             )}
                           >
                             {t.label}
@@ -605,18 +645,22 @@ export function LibraryClient({
                       </div>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={() => handleRemove(item.id)}
-                      className="inline-flex items-center justify-center p-2 rounded-lg border border-[var(--border-main)] bg-[var(--surface)] text-[var(--text-secondary)] hover:text-[var(--error)] hover:border-[var(--error)]/30 transition-colors"
-                      title="Remove from library"
-                    >
-                      {isCurrentActioning ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <Trash2 className="h-3.5 w-3.5" />
-                      )}
-                    </button>
+                    {/* Nothing to remove when the book is only being read and
+                        has never been filed on a shelf. */}
+                    {item.shelfType && (
+                      <button
+                        type="button"
+                        onClick={() => handleRemove(item.bookId)}
+                        className="inline-flex items-center justify-center p-2 rounded-lg border border-[var(--border-main)] bg-[var(--surface)] text-[var(--text-secondary)] hover:text-[var(--error)] hover:border-[var(--error)]/30 transition-colors"
+                        title="Remove from shelves"
+                      >
+                        {isCurrentActioning ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-3.5 w-3.5" />
+                        )}
+                      </button>
+                    )}
 
                     {/* Collections (custom shelves) quick toggle */}
                     <div className="relative group">
@@ -632,13 +676,13 @@ export function LibraryClient({
                         ) : (
                           initialShelves.map((shelf) => {
                             const inShelf = (initialShelfBooksByShelf[shelf.id] ?? []).some(
-                              (sb) => sb.book_id === item.book_id
+                              (sb) => sb.book_id === item.bookId
                             )
                             return (
                               <button
                                 key={shelf.id}
                                 type="button"
-                                onClick={() => handleToggleShelfBook(shelf.id, item.book_id, inShelf)}
+                                onClick={() => handleToggleShelfBook(shelf.id, item.bookId, inShelf)}
                                 className="w-full flex items-center justify-between gap-2 px-3 py-2 text-xs text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] transition-colors"
                               >
                                 <span className="truncate">{shelf.name}</span>

@@ -430,7 +430,8 @@ export async function removeGroupBookListItem(
  */
 export async function updateGroupBookListItem(
   itemId: string,
-  updates: { status?: string; note?: string; position?: number },
+  // note is nullable in group_book_list — pass null to clear it, undefined to leave it
+  updates: { status?: string; note?: string | null; position?: number },
   groupId: string
 ): Promise<{ error: string | null }> {
   try {

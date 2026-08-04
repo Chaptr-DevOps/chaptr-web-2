@@ -40,6 +40,15 @@ export default async function NotesPage({ params }: PageProps) {
     .eq('book_id', bookId)
     .maybeSingle()
 
+  // 2b. Which shelf this book sits on (user_library, shared with mobile)
+  const { data: libraryItem } = await supabase
+    .from('user_library')
+    .select('id, shelf_type')
+    .eq('user_id', profile.id)
+    .eq('book_id', bookId)
+    .limit(1)
+    .maybeSingle()
+
   // 3. Fetch chapter completions
   const { data: completions } = await supabase
     .from('chapter_completions')
@@ -72,6 +81,7 @@ export default async function NotesPage({ params }: PageProps) {
       <NotesClient
         book={book}
         progress={progress}
+        libraryItem={libraryItem}
         completions={completions ?? []}
         notes={notes ?? []}
       />

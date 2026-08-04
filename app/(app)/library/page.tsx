@@ -19,7 +19,38 @@ export default async function LibraryPage() {
     .select('id', { count: 'exact', head: true })
     .eq('is_read', false)
 
-  // Fetch reading progress records joined with books
+  // The shelves themselves live in user_library — same table the mobile app
+  // writes, so shelving a book on either client shows up on both.
+  const { data: libraryItems } = await supabase
+    .from('user_library')
+    .select(`
+      id,
+      user_id,
+      book_id,
+      shelf_type,
+      priority,
+      notes,
+      rating,
+      review,
+      added_at,
+      updated_at,
+      book:books(
+        id,
+        title,
+        author,
+        total_pages,
+        total_chapters,
+        cover_image_url
+      )
+    `)
+    .eq('user_id', profile?.id ?? '')
+    .order('added_at', { ascending: false })
+
+  const items = (libraryItems ?? []) as any[]
+
+  // Reading progress is a separate concern (how far in, which chapter). It is
+  // overlaid onto shelf cards by book_id, and it *is* the source for the
+  // "Reading" tab — which is derived state, not a shelf.
   const { data: progressItems } = await supabase
     .from('reading_progress')
     .select(`
@@ -43,7 +74,7 @@ export default async function LibraryPage() {
     .eq('user_id', profile?.id ?? '')
     .order('created_at', { ascending: false })
 
-  const items = (progressItems ?? []) as any[]
+  const progress = (progressItems ?? []) as any[]
 
   // Fetch the user's custom shelves (collections) with a book count each
   const { data: shelvesData } = await supabase
@@ -63,7 +94,6 @@ export default async function LibraryPage() {
     ? await supabase
         .from('shelf_books')
         .select(`
-          id,
           shelf_id,
           book_id,
           added_at,
@@ -93,6 +123,7 @@ export default async function LibraryPage() {
       />
       <LibraryClient
         initialItems={items}
+        initialProgress={progress}
         initialShelves={shelves}
         initialShelfBooksByShelf={shelfBooksByShelf}
       />

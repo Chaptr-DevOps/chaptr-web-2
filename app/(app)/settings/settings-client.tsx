@@ -11,18 +11,30 @@ import {
   Shield,
   ChevronRight,
   Check,
+  Palette,
+  Sun,
+  Moon,
+  Monitor,
 } from 'lucide-react'
 import { Avatar } from '@/components/ui/avatar'
 import { Card } from '@/components/ui/card'
 import { createClient } from '@/lib/supabase/client'
+import { useTheme, type ThemeMode } from '@/components/theme-provider'
 import { updateProfile, uploadAvatar } from './actions'
 import { GENRES } from '@/lib/types'
 import type { UserProfile } from '@/lib/types'
 
-type Section = 'profile' | 'account'
+type Section = 'profile' | 'appearance' | 'account'
+
+const THEME_OPTIONS: { value: ThemeMode; label: string; hint: string; icon: React.ElementType }[] = [
+  { value: 'light', label: 'Light', hint: 'Warm paper', icon: Sun },
+  { value: 'dark', label: 'Dark', hint: 'Low light', icon: Moon },
+  { value: 'system', label: 'System', hint: 'Match device', icon: Monitor },
+]
 
 export function SettingsClient({ profile }: { profile: UserProfile }) {
   const router = useRouter()
+  const { theme, setTheme, mounted } = useTheme()
   const [section, setSection] = useState<Section>('profile')
   const [isPending, startTransition] = useTransition()
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
@@ -89,11 +101,12 @@ export function SettingsClient({ profile }: { profile: UserProfile }) {
 
   const SECTIONS: { key: Section; label: string; icon: React.ElementType }[] = [
     { key: 'profile', label: 'Profile', icon: User },
+    { key: 'appearance', label: 'Appearance', icon: Palette },
     { key: 'account', label: 'Account', icon: Shield },
   ]
 
   return (
-    <div className="mx-auto max-w-2xl">
+    <div>
       {/* Page header */}
       <div className="px-5 pt-8 pb-2 md:px-8">
         <h1 className="font-serif text-[34px] leading-10 tracking-[-0.7px] text-[var(--text-primary)]">
@@ -311,6 +324,66 @@ export function SettingsClient({ profile }: { profile: UserProfile }) {
               )}
               Save changes
             </button>
+          </div>
+        )}
+
+        {/* APPEARANCE SECTION */}
+        {section === 'appearance' && (
+          <div className="space-y-4">
+            <Card elevated className="p-5">
+              <p className="mb-1 text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-wider">
+                Theme
+              </p>
+              <p className="mb-4 text-sm text-[var(--text-tertiary)]">
+                Chaptr matches your device by default. Pick a fixed theme to override it.
+              </p>
+              <div className="grid grid-cols-3 gap-3">
+                {THEME_OPTIONS.map(({ value, label, hint, icon: Icon }) => {
+                  const active = mounted && theme === value
+                  return (
+                    <button
+                      key={value}
+                      onClick={() => setTheme(value)}
+                      aria-pressed={active}
+                      className={`flex flex-col items-center gap-1.5 rounded-xl border px-3 py-4 transition-all ${
+                        active
+                          ? 'border-primary bg-primary/10 text-primary'
+                          : 'border-[var(--border-main)] bg-[var(--surface)] text-[var(--text-secondary)] hover:border-primary/50'
+                      }`}
+                    >
+                      <Icon className="h-5 w-5" />
+                      <span className="text-sm font-semibold">{label}</span>
+                      <span className="text-xs text-[var(--text-tertiary)]">{hint}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </Card>
+
+            {/* Live preview of the palette, so the choice is visible immediately */}
+            <Card elevated className="p-5">
+              <p className="mb-4 text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-wider">
+                Preview
+              </p>
+              <div className="rounded-xl border border-[var(--border-main)] bg-[var(--background)] p-4">
+                <p className="text-cardtitle text-[var(--text-primary)]">The Song of Achilles</p>
+                <p className="text-caption mt-0.5 text-[var(--text-tertiary)]">Madeline Miller</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <span className="rounded-full bg-[var(--success-bg)] px-2.5 py-1 text-xs font-medium text-[var(--success)]">
+                    Reading
+                  </span>
+                  <span className="rounded-full bg-[var(--warning-bg)] px-2.5 py-1 text-xs font-medium text-[var(--warning)]">
+                    Due soon
+                  </span>
+                  <span className="rounded-full bg-[var(--error-bg)] px-2.5 py-1 text-xs font-medium text-[var(--error)]">
+                    Overdue
+                  </span>
+                </div>
+                <div className="mt-4 h-2 overflow-hidden rounded-full bg-[var(--border-main)]">
+                  <div className="h-full w-2/3 rounded-full bg-primary" />
+                </div>
+              </div>
+            </Card>
           </div>
         )}
 

@@ -34,7 +34,9 @@ export default async function ChapterCompletionPage({ params, searchParams }: Pa
 
   let progressQuery = supabase
     .from('reading_progress')
-    .select('id, current_chapter, completed_chapters, total_chapters')
+    .select(
+      'id, current_chapter, completed_chapters, total_chapters, completion_target_date, started_at'
+    )
     .eq('user_id', user.id)
     .eq('book_id', bookId)
 
@@ -50,12 +52,17 @@ export default async function ChapterCompletionPage({ params, searchParams }: Pa
   const totalChapters = progress.total_chapters ?? book.total_chapters ?? 0
   if (totalChapters > 0 && chapterNumber > totalChapters) notFound()
 
+  // Snippets only. Completing the chapter collapses these into a single
+  // 'chapter_completion' note (see completeChapterWithNotes) — loading that
+  // combined note back into the composer would show it as one giant bullet and
+  // re-collapse it on the next completion. Earlier notes stay in the library.
   const { data: noteRows } = await supabase
     .from('personal_notes')
     .select('id, note_content')
     .eq('user_id', user.id)
     .eq('book_id', bookId)
     .eq('chapter_number', chapterNumber)
+    .eq('note_type', 'snippet')
     .order('created_at', { ascending: true })
 
   const initialNotes: ChapterNote[] = (noteRows ?? [])
@@ -68,7 +75,7 @@ export default async function ChapterCompletionPage({ params, searchParams }: Pa
   // (and vice versa) — a case the server correctly allows.
   let completionsQuery = supabase
     .from('chapter_completions')
-    .select('chapter_number')
+    .select('chapter_number, completed_at')
     .eq('user_id', user.id)
     .eq('book_id', bookId)
 
@@ -82,15 +89,20 @@ export default async function ChapterCompletionPage({ params, searchParams }: Pa
     ...new Set((completions ?? []).map((c) => c.chapter_number)),
   ]
 
-  let groupName: string | null = null
+  // Feeds the pace stat on the success screen. `completed_at` is nullable in the
+  // schema, so drop the rows that carry no timestamp rather than letting them
+  // parse as Invalid Date.
+  const completionDates = (completions ?? [])
+    .map((c) => c.completed_at)
+    .filter((t): t is string => Boolean(t))
+
   let groupColor: string | null = null
   if (groupId) {
     const { data: groupRow } = await supabase
       .from('reading_groups')
-      .select('name, primary_color')
+      .select('primary_color')
       .eq('id', groupId)
       .maybeSingle()
-    groupName = groupRow?.name ?? null
     groupColor = groupRow?.primary_color ?? null
   }
 
@@ -104,13 +116,17 @@ export default async function ChapterCompletionPage({ params, searchParams }: Pa
       key={`${book.id}:${chapterNumber}`}
       bookId={book.id}
       bookTitle={book.title}
+      bookAuthor={book.author}
+      coverImageUrl={book.cover_image_url}
       chapterNumber={chapterNumber}
       totalChapters={totalChapters}
       progressId={progress.id}
       groupId={groupId}
       groupColor={groupColor}
-      groupName={groupName}
       completedChapterNumbers={completedChapterNumbers}
+      completionDates={completionDates}
+      completionTargetDate={progress.completion_target_date}
+      startedAt={progress.started_at}
       initialNotes={initialNotes}
     />
   )

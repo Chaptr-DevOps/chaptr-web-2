@@ -16,14 +16,19 @@ export default async function GroupsPage() {
     .select('id', { count: 'exact', head: true })
     .eq('is_read', false)
 
-  // Fetch groups the user is a member of
+  // Fetch groups the user is a member of. `role` rides along so we can split
+  // the list into groups you manage vs groups you merely joined.
   const { data: memberRows } = await supabase
     .from('group_memberships')
-    .select('group_id')
+    .select('group_id, role')
     .eq('user_id', userId)
     .eq('is_active', true)
 
   const myGroupIds = (memberRows ?? []).map((r) => r.group_id)
+  const roleMap = new Map<string, string>()
+  for (const row of memberRows ?? []) {
+    roleMap.set(row.group_id, row.role)
+  }
 
   // Fetch those groups with member counts and current book
   const { data: myGroupsRaw } = myGroupIds.length
@@ -72,6 +77,9 @@ export default async function GroupsPage() {
       ...g,
       memberCount: countMap.get(g.id) ?? 0,
       bookTitle: g.current_book?.title ?? null,
+      // Same predicate the manage page gates on, so "own" here always lines up
+      // with who actually gets the Manage button.
+      isOwner: g.created_by === userId || roleMap.get(g.id) === 'admin',
     }
   }
 

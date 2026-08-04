@@ -9,6 +9,21 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
+/**
+ * Where to land after signing in. Pages that need the user back afterwards —
+ * notably a group's subscribe page — link here with `?redirect=/some/path`.
+ * Only same-origin paths are honoured, so the parameter can't be used to bounce
+ * someone to an external site.
+ */
+function redirectTarget(): string {
+  if (typeof window === 'undefined') return '/home'
+  const requested = new URLSearchParams(window.location.search).get('redirect')
+  if (requested && requested.startsWith('/') && !requested.startsWith('//')) {
+    return requested
+  }
+  return '/home'
+}
+
 export default function SignInPage() {
   const router = useRouter()
   const [email, setEmail] = useState('')
@@ -30,19 +45,22 @@ export default function SignInPage() {
       setLoading(false)
       return
     }
-    router.push('/home')
+    router.push(redirectTarget())
     router.refresh()
   }
 
   async function oauth(provider: 'google' | 'apple') {
     const supabase = createClient()
+    const base =
+      process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL ??
+      `${window.location.origin}/auth/callback`
+    // /auth/callback forwards to `next` once the code is exchanged.
+    const callback = new URL(base)
+    callback.searchParams.set('next', redirectTarget())
+
     await supabase.auth.signInWithOAuth({
       provider,
-      options: {
-        redirectTo:
-          process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL ??
-          `${window.location.origin}/auth/callback`,
-      },
+      options: { redirectTo: callback.toString() },
     })
   }
 

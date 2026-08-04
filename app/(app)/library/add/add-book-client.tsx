@@ -10,7 +10,8 @@ import { Label } from '@/components/ui/label'
 import { Card } from '@/components/ui/card'
 import { BookCover } from '@/components/book-cover'
 import { addBookToShelf, addBookToCustomShelf } from '../actions'
-import type { CustomShelf } from '@/lib/types'
+import { LIBRARY_TABS } from '@/lib/types'
+import type { CustomShelf, ShelfType } from '@/lib/types'
 
 interface SearchHit {
   title: string
@@ -26,7 +27,7 @@ export function AddBookClient({ initialShelves }: { initialShelves: CustomShelf[
   const [searching, setSearching] = useState(false)
   const [showCustom, setShowCustom] = useState(false)
   const [isPending, startTransition] = useTransition()
-  const [selectedShelf, setSelectedShelf] = useState('tbr')
+  const [selectedShelf, setSelectedShelf] = useState<ShelfType>('tbr')
   const [selectedShelfIds, setSelectedShelfIds] = useState<string[]>([])
 
   function toggleShelfSelection(id: string) {
@@ -122,7 +123,7 @@ export function AddBookClient({ initialShelves }: { initialShelves: CustomShelf[
   }
 
   return (
-    <div className="space-y-6 px-5 md:px-8 max-w-2xl">
+    <div className="space-y-6 px-5 md:px-8">
       <div className="flex items-center gap-3">
         <Link href="/library" aria-label="Back to Library" className={buttonVariants({ variant: 'outline', size: 'icon' })}>
             <ArrowLeft className="h-4 w-4" />
@@ -139,18 +140,18 @@ export function AddBookClient({ initialShelves }: { initialShelves: CustomShelf[
           <p className="text-xs text-[var(--text-secondary)]">Where should this book be added?</p>
         </div>
         <div className="flex gap-2">
-          {['tbr', 'reading', 'finished'].map((shelf) => (
+          {LIBRARY_TABS.map((shelf) => (
             <button
-              key={shelf}
+              key={shelf.key}
               type="button"
-              onClick={() => setSelectedShelf(shelf)}
+              onClick={() => setSelectedShelf(shelf.key)}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold uppercase tracking-wider transition-all border ${
-                selectedShelf === shelf
+                selectedShelf === shelf.key
                   ? 'bg-primary border-primary text-[var(--interactive-primary-foreground)]'
                   : 'bg-[var(--surface-elevated)] border-[var(--border-main)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
               }`}
             >
-              {shelf === 'tbr' ? 'TBR' : shelf}
+              {shelf.label}
             </button>
           ))}
         </div>

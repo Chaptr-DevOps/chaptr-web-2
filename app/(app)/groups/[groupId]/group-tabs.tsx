@@ -565,7 +565,7 @@ export function GroupTabs({
               <h3 className="font-serif text-lg font-medium text-[var(--text-primary)] mb-1">
                 No Announcements Yet
               </h3>
-              <p className="text-sm text-[var(--text-secondary)] max-w-xs">
+              <p className="text-sm text-[var(--text-secondary)] max-w-xl">
                 Important club updates and discussions will appear here.
               </p>
             </Card>
@@ -757,7 +757,6 @@ export function GroupTabs({
                               <div className="flex items-center gap-2 mt-2 pt-2 border-t border-[var(--border-main)]/50">
                                 <Input
                                   placeholder="Write a comment..."
-                                  size="sm"
                                   value={newCommentText[ann.id] || ''}
                                   onChange={(e) =>
                                     setNewCommentText((prev) => ({
@@ -771,7 +770,7 @@ export function GroupTabs({
                                       handleAddComment(ann.id)
                                     }
                                   }}
-                                  className="flex-1 text-xs"
+                                  className="flex-1 h-9 px-3 text-xs"
                                 />
                                 <Button
                                   size="sm"
@@ -934,7 +933,7 @@ export function GroupTabs({
                               )}
                             </div>
                             <Button
-                              size="xs"
+                              size="sm"
                               className="w-max mt-1"
                               onClick={() => handleAddSelectedBook(hit)}
                               disabled={isPending}
@@ -1022,7 +1021,7 @@ export function GroupTabs({
               <h3 className="font-serif text-lg font-medium text-[var(--text-primary)] mb-1">
                 No Books Found
               </h3>
-              <p className="text-sm text-[var(--text-secondary)] max-w-xs">
+              <p className="text-sm text-[var(--text-secondary)] max-w-xl">
                 {bookListFilter !== 'all'
                   ? `There are no books marked as "${bookListFilter}".`
                   : 'Add books to the club list to recommend upcoming readings or track finished books.'}

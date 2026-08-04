@@ -17,7 +17,7 @@ pnpm lint     # eslint .
 
 No test suite exists in this repo currently.
 
-Database schema lives in `scripts/001_chaptr_schema.sql` — run it against the Supabase project's SQL editor to (re)provision tables/RLS policies. It's idempotent (`create table if not exists`, `drop policy if exists`).
+`scripts/001_chaptr_schema.sql` is a **reference mirror of the live database — documentation, not a provisioning script. Do not run it.** The live Postgres schema is owned by the Chaptr mobile backend (47 public tables); the file dumps the 22 tables this web app queries, verbatim: columns, types, defaults, enums, indexes and the real RLS policies, plus a "KNOWN TRAPS" section at the bottom. Re-dump it after any migration. Schema changes go through a migration against the live project, not by editing this file.
 
 ## Environment variables
 
@@ -46,7 +46,7 @@ Stripe is **not yet wired up for real** — see Stripe section below.
 - Gotcha: the membership table is `group_memberships` (with `is_active`, `last_activity`, `role` columns) — the TS interface for it in `lib/types.ts` is named `GroupMember` and is missing those fields. Don't rely on that interface being complete; check the SQL schema.
 
 ### Paid groups / paywall
-- A reading group can be `is_paid`; premium content is either a `group_channels` row (`is_premium`) or a `group_books` row (`is_premium`).
+- A reading group can be `is_paid`; premium content is a `group_channels` row with `is_premium`. (There is no premium-books path — `group_books` does not exist in the live DB; the group's book list is `group_book_list` and has no `is_premium` column.)
 - `components/paywall-gate.tsx` (`<PaywallGate locked groupId>`) is the standard wrapper for gating any premium content — renders a blurred preview + "Subscribe to unlock" CTA linking to `/groups/[groupId]/subscribe` when locked.
 - **`lib/stripe.ts` is a placeholder, not real Stripe.** Its functions return shaped mock data (`createGroupCheckoutSession`, `getConnectOnboardingStatus`, `getCreatorPayoutSummary`). `startSubscribeCheckout` in `groups/actions.ts` currently writes a `group_subscriptions` row directly instead of going through real Stripe Checkout — the real Stripe Connect implementation exists in the production backend and is expected to be wired in later. Don't build on top of the placeholder as if it were real billing without flagging that it needs replacing.
 
@@ -57,4 +57,4 @@ Stripe is **not yet wired up for real** — see Stripe section below.
 - `components/ui/*` are shadcn primitives; feature components live flat in `components/` (e.g. `app-shell.tsx`, `book-cover.tsx`, `group-card.tsx`, `paywall-gate.tsx`).
 
 ### Reference doc
-- `docs/web-parity-spec.md` documents the *original React Native mobile app* (screens, navigation, API surface, design tokens) as the porting spec for this web build. Useful for understanding intended feature scope and user flows, but treat it as a spec, not as current-state documentation — some details (table names, status enums, RN-specific APIs) don't match this repo's actual schema/types. When they conflict, `scripts/001_chaptr_schema.sql` and `lib/types.ts` win.
+- `docs/web-parity-spec.md` is the mobile→web parity map, regenerated 2026-07-29 from the React Native source at `~/Desktop/Chaptr` (the RN app is not in this repo). It inventories every mobile screen with a **parity status** against this repo's routes, plus the RN API surface, design tokens and user flows — §7 is the porting backlog. It deliberately does *not* restate the DB schema: `scripts/001_chaptr_schema.sql` wins on anything schema-related. Both apps share one Supabase project, so tables one app writes and the other ignores (see §2.1, §2.2) are real user-visible splits.

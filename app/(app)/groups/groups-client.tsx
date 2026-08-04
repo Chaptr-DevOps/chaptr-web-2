@@ -21,12 +21,18 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Badge } from '@/components/ui/badge'
-import { createGroup, joinGroupWithCode } from './actions'
+import { createGroup, resolveInviteCode } from './actions'
 import type { ReadingGroup } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
+type EnrichedGroup = ReadingGroup & {
+  memberCount: number
+  bookTitle: string | null
+  isOwner: boolean
+}
+
 interface GroupsClientProps {
-  myGroups: Array<ReadingGroup & { memberCount: number; bookTitle: string | null }>
+  myGroups: EnrichedGroup[]
   publicGroups: Array<ReadingGroup & { memberCount: number; bookTitle: string | null }>
 }
 
@@ -38,6 +44,39 @@ const PACE_DESCRIPTIONS = {
   relaxed: '<1 book/month',
   moderate: '1–2 books/month',
   fast: '3+ books/month',
+}
+
+function GroupSection({
+  title,
+  groups,
+  showHeader,
+}: {
+  title: string
+  groups: EnrichedGroup[]
+  showHeader: boolean
+}) {
+  return (
+    <div>
+      {showHeader && (
+        <div className="mb-3 flex items-center">
+          <h2 className="text-sm font-semibold text-[var(--text-primary)]">{title}</h2>
+          <span className="ml-2 rounded-full bg-[var(--surface-elevated)] px-2 py-0.5 text-xs font-medium text-[var(--text-secondary)]">
+            {groups.length}
+          </span>
+        </div>
+      )}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {groups.map((g) => (
+          <GroupCard
+            key={g.id}
+            group={g}
+            memberCount={g.memberCount}
+            bookTitle={g.bookTitle}
+          />
+        ))}
+      </div>
+    </div>
+  )
 }
 
 export function GroupsClient({ myGroups, publicGroups }: GroupsClientProps) {
@@ -65,6 +104,9 @@ export function GroupsClient({ myGroups, publicGroups }: GroupsClientProps) {
       (g.bookTitle ?? '').toLowerCase().includes(search.toLowerCase()),
   )
 
+  const ownedGroups = filteredMyGroups.filter((g) => g.isOwner)
+  const joinedGroups = filteredMyGroups.filter((g) => !g.isOwner)
+
   const filteredPublic = publicGroups.filter(
     (g) =>
       g.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -88,15 +130,14 @@ export function GroupsClient({ myGroups, publicGroups }: GroupsClientProps) {
     if (!code.trim()) return
     setJoinError('')
     startTransition(async () => {
-      const res = await joinGroupWithCode(code)
+      const res = await resolveInviteCode(code)
       if (res.error) {
         setJoinError(res.error)
-      } else if (res.requiresSubscription) {
-        closeModal()
-        router.push(`/groups/${res.groupId}/subscribe`)
       } else {
+        // The code only identifies the group — joining happens on the preview
+        // page, so every route into a group goes through the same screen.
         closeModal()
-        router.push(`/groups/${res.groupId}`)
+        router.push(res.alreadyMember ? `/groups/${res.groupId}` : `/join/${res.groupId}`)
         router.refresh()
       }
     })
@@ -206,7 +247,7 @@ export function GroupsClient({ myGroups, publicGroups }: GroupsClientProps) {
                 <h3 className="font-serif text-lg font-medium text-[var(--text-primary)] mb-1">
                   {search ? 'No groups found' : "You haven't joined any groups"}
                 </h3>
-                <p className="text-sm text-[var(--text-secondary)] mb-5 max-w-xs">
+                <p className="text-sm text-[var(--text-secondary)] mb-5 max-w-xl">
                   {search
                     ? 'Try a different search term.'
                     : 'Join a reading club to discuss books, track your reading progress, and more.'}
@@ -223,15 +264,23 @@ export function GroupsClient({ myGroups, publicGroups }: GroupsClientProps) {
                 </div>
               </Card>
             ) : (
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {filteredMyGroups.map((g) => (
-                  <GroupCard
-                    key={g.id}
-                    group={g}
-                    memberCount={g.memberCount}
-                    bookTitle={g.bookTitle}
+              // Only label the sections when there is something to tell apart —
+              // with just one bucket the heading is noise.
+              <div className="space-y-8">
+                {ownedGroups.length > 0 && (
+                  <GroupSection
+                    title="Groups You Own"
+                    groups={ownedGroups}
+                    showHeader={joinedGroups.length > 0}
                   />
-                ))}
+                )}
+                {joinedGroups.length > 0 && (
+                  <GroupSection
+                    title="Groups You've Joined"
+                    groups={joinedGroups}
+                    showHeader={ownedGroups.length > 0}
+                  />
+                )}
               </div>
             )}
           </section>
@@ -243,7 +292,7 @@ export function GroupsClient({ myGroups, publicGroups }: GroupsClientProps) {
                 <h3 className="font-serif text-lg font-medium text-[var(--text-primary)] mb-1">
                   {search ? 'No groups found' : 'No public groups yet'}
                 </h3>
-                <p className="text-sm text-[var(--text-secondary)] mb-5 max-w-xs">
+                <p className="text-sm text-[var(--text-secondary)] mb-5 max-w-xl">
                   {search
                     ? 'Try a different search term.'
                     : 'Be the first to create a public reading group.'}
@@ -260,6 +309,9 @@ export function GroupsClient({ myGroups, publicGroups }: GroupsClientProps) {
                     group={g}
                     memberCount={g.memberCount}
                     bookTitle={g.bookTitle}
+                    // Discover only ever lists groups you're not in (the page
+                    // query excludes your own), so every card previews first.
+                    href={`/join/${g.id}`}
                   />
                 ))}
               </div>
@@ -304,7 +356,7 @@ export function GroupsClient({ myGroups, publicGroups }: GroupsClientProps) {
                   )}
                   <div className="flex gap-3">
                     <Button type="submit" className="flex-1" disabled={isPending || !code.trim()}>
-                      {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Join Group'}
+                      {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Continue'}
                     </Button>
                     <Button type="button" variant="outline" onClick={closeModal}>
                       Cancel
