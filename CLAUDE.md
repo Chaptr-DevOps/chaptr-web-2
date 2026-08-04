@@ -34,8 +34,8 @@ Stripe is **not yet wired up for real** — see Stripe section below.
 - Supabase Auth with `@supabase/ssr`. Three client factories, use the right one:
   - `lib/supabase/client.ts` — browser client, for `'use client'` components.
   - `lib/supabase/server.ts` — server client for Server Components/Server Actions (always create fresh per-request, per the Fluid-compute warning in the file — never hoist to a module-level singleton).
-  - `lib/supabase/proxy.ts` — used only by `middleware.ts` to refresh the session cookie.
-- `middleware.ts` is the single gate for auth redirects: unauthenticated users get bounced to `/signin` for any non-public route; authenticated users get bounced away from `/`, `/signin`, `/signup` to `/home`. Public routes: `/`, `/signin`, `/signup`, `/auth/*`, `/forgot-password`.
+  - `lib/supabase/proxy.ts` — used only by the root `proxy.ts` to refresh the session cookie. Note the two unrelated files both named `proxy.ts`: this one holds `updateSession` (all the auth-gate logic), the root one is the Next.js file convention that calls it.
+- `proxy.ts` at the repo root is the single gate for auth redirects — this is Next 16's rename of the old `middleware.ts` convention, and the exported function must be named `proxy`. Unauthenticated users get bounced to `/signin?redirect=<destination>` for any non-public route; authenticated users get bounced away from `/`, `/signin`, `/signup` to `/home`. Public routes: `/`, `/signin`, `/signup`, `/auth/*`, `/forgot-password`, `/pricing`, `/terms`, `/privacy`, `/refunds`, `/groups/<id>/subscribe`, and everything under `/api` (which authenticates itself — the Stripe webhook verifies signatures).
 - `app/(app)/layout.tsx` is a second, narrower gate: redirects to `/onboarding/username` if the profile has no username and hasn't completed onboarding. All authenticated app pages live under the `(app)` route group and render inside `AppShell` (`components/app-shell.tsx`), which provides the sidebar (desktop) / bottom nav (mobile).
 
 ### Data layer
