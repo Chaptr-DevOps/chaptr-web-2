@@ -28,12 +28,6 @@ export default async function GroupPreviewPage({
   const supabase = await createClient()
   const profile = await getProfile()
 
-  // Must be signed in. The param is `redirect` — what /signin actually reads;
-  // middleware normally intercepts first, so this is the fallback path.
-  if (!profile) {
-    redirect(`/signin?redirect=/join/${groupId}`)
-  }
-
   const { data: group } = await supabase
     .from('reading_groups')
     .select(
@@ -43,29 +37,42 @@ export default async function GroupPreviewPage({
     .maybeSingle()
 
   if (!group) {
+    // For an anonymous visitor a private group and a missing one are
+    // indistinguishable — RLS returns nothing either way. Sign-in resolves it:
+    // a member of a private group lands where they meant to, and a dead link
+    // costs one redirect.
+    if (!profile) redirect(`/signin?redirect=/join/${groupId}`)
     redirect('/groups')
   }
 
   // Members skip the preview entirely — invite links they already accepted
   // should drop them straight into the group.
-  const { data: existing } = await supabase
-    .from('group_memberships')
-    .select('id')
-    .eq('group_id', groupId)
-    .eq('user_id', profile.id)
-    .eq('is_active', true)
-    .maybeSingle()
+  if (profile) {
+    const { data: existing } = await supabase
+      .from('group_memberships')
+      .select('id')
+      .eq('group_id', groupId)
+      .eq('user_id', profile.id)
+      .eq('is_active', true)
+      .maybeSingle()
 
-  if (existing) {
-    redirect(`/groups/${groupId}`)
+    if (existing) redirect(`/groups/${groupId}`)
   }
 
-  const { data: memberRows } = await supabase
+  // Members joined a reading group; they did not agree to appear on a public
+  // page a search engine can index. Anonymous visitors get the count plus the
+  // host — the host is the creator promoting this link, so their name is the
+  // pitch rather than a leak, and "Hosted by X" is much of why the page is
+  // trusted. Ordinary members stay anonymous.
+  const memberQuery = supabase
     .from('group_memberships')
     .select('role, user:users(id, username, display_name, avatar_url, profile_image_url)')
     .eq('group_id', groupId)
     .eq('is_active', true)
-    .limit(8)
+
+  const { data: memberRows } = profile
+    ? await memberQuery.limit(8)
+    : await memberQuery.eq('role', 'admin').limit(1)
 
   const { count: memberCount } = await supabase
     .from('group_memberships')
@@ -116,6 +123,7 @@ export default async function GroupPreviewPage({
       members={members}
       memberCount={memberCount ?? 0}
       weeklyMessages={weeklyMessages}
+      isSignedIn={Boolean(profile)}
     />
   )
 }

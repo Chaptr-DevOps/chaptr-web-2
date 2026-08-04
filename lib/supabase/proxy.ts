@@ -67,9 +67,14 @@ export async function updateSession(request: NextRequest) {
   // other /groups/* route stays behind auth.
   const isPublicSubscribePage = /^\/groups\/[^/]+\/subscribe\/?$/.test(path)
 
+  // A creator's bio link lands here. It must render for someone with no account —
+  // that preview is the pitch. Only the preview is public; joining still needs auth.
+  const isPublicJoinPage = /^\/join\/[^/]+\/?$/.test(path)
+
   const isPublic =
     path === '/' ||
     isPublicSubscribePage ||
+    isPublicJoinPage ||
     publicRoutes.some((p) => path === p || path.startsWith(p + '/'))
 
   // Unauthenticated users hitting a protected route go to /signin, carrying

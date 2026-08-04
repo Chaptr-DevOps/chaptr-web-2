@@ -96,6 +96,7 @@ export function GroupPreviewClient({
   members,
   memberCount,
   weeklyMessages,
+  isSignedIn,
 }: {
   group: PreviewGroup
   book: PreviewBook | null
@@ -103,6 +104,7 @@ export function GroupPreviewClient({
   members: PreviewMember[]
   memberCount: number
   weeklyMessages: number | null
+  isSignedIn: boolean
 }) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
@@ -361,11 +363,18 @@ export function GroupPreviewClient({
               )}
 
               {/* Members */}
-              {members.length > 0 && (
+              {(members.length > 0 || memberCount > 0) && (
                 <section className="rounded-xl border border-[var(--border-main)] bg-[var(--surface)] p-5">
                   <p className="mb-4 text-xs font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
                     Who&apos;s Reading ({memberCount})
                   </p>
+                  {!isSignedIn ? (
+                    <p className="text-sm text-[var(--text-secondary)]">
+                      {memberCount === 1
+                        ? '1 reader has joined so far.'
+                        : `${memberCount} readers have joined so far.`}
+                    </p>
+                  ) : (
                   <div className="flex flex-wrap gap-2">
                     {members.map((m) => (
                       <span
@@ -389,6 +398,7 @@ export function GroupPreviewClient({
                       </span>
                     )}
                   </div>
+                  )}
                 </section>
               )}
 
