@@ -19,7 +19,7 @@ import {
 } from 'lucide-react'
 import { Avatar } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { CommunityGuidelinesModal, GUIDELINES } from '@/components/community-guidelines-modal'
 import { formatPrice } from '@/lib/stripe'
 import { cn } from '@/lib/utils'
@@ -147,7 +147,18 @@ export function GroupPreviewClient({
     runJoin()
   }
 
-  const joinButton = (
+  // Membership is free for every group — `is_paid` marks a premium *tier*, not a
+  // paid door — so Join is the primary action for paid and free groups alike.
+  // A signed-out visitor goes to signup; lib/pending-redirect.ts carries this
+  // destination through signup and all six onboarding steps and returns them here.
+  const joinButton = !isSignedIn ? (
+    <Link
+      href={`/signup?redirect=${encodeURIComponent(`/join/${group.id}`)}`}
+      className={buttonVariants({ className: 'w-full' })}
+    >
+      <LogIn className="mr-1.5 h-4 w-4" /> Join Group
+    </Link>
+  ) : (
     <Button className="w-full" onClick={handleJoinClick} disabled={isPending}>
       {isPending ? (
         <Loader2 className="h-4 w-4 animate-spin" />
