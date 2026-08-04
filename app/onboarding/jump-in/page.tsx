@@ -6,6 +6,7 @@ import { PartyPopper } from 'lucide-react'
 import { OnboardingShell } from '@/components/onboarding-shell'
 import { Button } from '@/components/ui/button'
 import { completeOnboarding } from '../actions'
+import { takePendingRedirect } from '@/lib/pending-redirect'
 
 export default function JumpInStep() {
   const router = useRouter()
@@ -15,7 +16,9 @@ export default function JumpInStep() {
     setLoading(true)
     await completeOnboarding()
     sessionStorage.removeItem('onboarding_book')
-    router.push('/home')
+    // A user who arrived from an invite link finishes onboarding at the group
+    // that invited them, not on a generic home feed.
+    router.push(takePendingRedirect() ?? '/home')
     router.refresh()
   }
 

@@ -1,9 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import {
+  setPendingRedirect,
+  withRedirectParam,
+} from '@/lib/pending-redirect'
 import { AuthFrame } from '@/components/auth-frame'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -17,6 +21,17 @@ export default function SignUpPage() {
   const [agree, setAgree] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  // Read after mount, not during render: window doesn't exist on the server and
+  // reading it inline would desync the markup React hydrates against.
+  const [signinHref, setSigninHref] = useState('/signin')
+
+  useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get('redirect')
+    // Park it now — the flow leaves this page for onboarding, and email
+    // confirmation may bounce the user out to their inbox and back first.
+    setPendingRedirect(requested)
+    setSigninHref(withRedirectParam('/signin', requested))
+  }, [])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -106,7 +121,7 @@ export default function SignUpPage() {
       </form>
       <p className="mt-6 text-center text-sm text-[var(--text-secondary)]">
         Already have an account?{' '}
-        <Link href="/signin" className="font-medium text-primary hover:underline">
+        <Link href={signinHref} className="font-medium text-primary hover:underline">
           Sign in
         </Link>
       </p>

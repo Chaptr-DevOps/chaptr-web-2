@@ -1,9 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { isSafeRedirect, withRedirectParam } from '@/lib/pending-redirect'
 import { AuthFrame } from '@/components/auth-frame'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -18,10 +19,7 @@ import { Label } from '@/components/ui/label'
 function redirectTarget(): string {
   if (typeof window === 'undefined') return '/home'
   const requested = new URLSearchParams(window.location.search).get('redirect')
-  if (requested && requested.startsWith('/') && !requested.startsWith('//')) {
-    return requested
-  }
-  return '/home'
+  return isSafeRedirect(requested) ? requested : '/home'
 }
 
 export default function SignInPage() {
@@ -30,6 +28,14 @@ export default function SignInPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  // Carry the destination across to /signup, otherwise a new user who came from
+  // an invite link loses it the moment they click "Sign up".
+  const [signupHref, setSignupHref] = useState('/signup')
+
+  useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get('redirect')
+    setSignupHref(withRedirectParam('/signup', requested))
+  }, [])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -125,7 +131,7 @@ export default function SignInPage() {
 
       <p className="mt-6 text-center text-sm text-[var(--text-secondary)]">
         New to Chaptr?{' '}
-        <Link href="/signup" className="font-medium text-primary hover:underline">
+        <Link href={signupHref} className="font-medium text-primary hover:underline">
           Create an account
         </Link>
       </p>
