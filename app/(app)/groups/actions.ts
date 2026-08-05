@@ -17,7 +17,6 @@ export async function createGroup(formData: {
   readingPace: string
   isPublic: boolean
   isPaid: boolean
-  price: number | null
 }) {
   const supabase = await createClient()
   const {
@@ -35,8 +34,13 @@ export async function createGroup(formData: {
       created_by: user.id,
       reading_pace: formData.readingPace,
       is_public: formData.isPublic,
-      is_paid: formData.isPaid,
-      price: formData.isPaid ? formData.price : null,
+      // Monetization is never enabled here. A price requires a Stripe Price
+      // object, which requires a completed Connect account the creator almost
+      // certainly does not have yet — writing is_paid without stripe_price_id
+      // produces a group that presents as paid and cannot take payment.
+      // setGroupPaid owns this transition.
+      is_paid: false,
+      price: null,
       invite_code: inviteCode,
     })
     .select('id')
@@ -60,7 +64,7 @@ export async function createGroup(formData: {
   ])
 
   revalidatePath('/groups')
-  return { groupId: group.id }
+  return { groupId: group.id, wantsPremium: Boolean(formData.isPaid) }
 }
 
 // ── Resolve Invite Code ────────────────────────────────────────────────────

@@ -95,7 +95,6 @@ export function GroupsClient({ myGroups, publicGroups }: GroupsClientProps) {
   const [cPace, setCPace] = useState<string>('moderate')
   const [cPublic, setCPublic] = useState(true)
   const [cPaid, setCPaid] = useState(false)
-  const [cPrice, setCPrice] = useState('')
   const [createError, setCreateError] = useState('')
 
   const filteredMyGroups = myGroups.filter(
@@ -121,7 +120,6 @@ export function GroupsClient({ myGroups, publicGroups }: GroupsClientProps) {
     setCPace('moderate')
     setCPublic(true)
     setCPaid(false)
-    setCPrice('')
     setCreateError('')
   }
 
@@ -153,13 +151,19 @@ export function GroupsClient({ myGroups, publicGroups }: GroupsClientProps) {
         readingPace: cPace,
         isPublic: cPublic,
         isPaid: cPaid,
-        price: cPaid && cPrice ? parseFloat(cPrice) : null,
       })
       if (res.error) {
         setCreateError(res.error)
       } else {
         closeModal()
-        router.push(`/groups/${res.groupId}`)
+        // A creator who asked for a premium tier lands on Manage, where Connect
+        // onboarding and setGroupPaid actually enable it. Sending them to the
+        // group instead would strand the intent with no path to finish it.
+        router.push(
+          res.wantsPremium
+            ? `/groups/${res.groupId}/manage`
+            : `/groups/${res.groupId}`,
+        )
         router.refresh()
       }
     })
@@ -466,24 +470,10 @@ export function GroupsClient({ myGroups, publicGroups }: GroupsClientProps) {
                   </div>
 
                   {cPaid && (
-                    <div className="space-y-1.5">
-                      <Label htmlFor="gprice">Monthly Price (USD)</Label>
-                      <div className="relative">
-                        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]">
-                          $
-                        </span>
-                        <Input
-                          id="gprice"
-                          type="number"
-                          min={1}
-                          step={0.01}
-                          placeholder="4.99"
-                          className="pl-7"
-                          value={cPrice}
-                          onChange={(e) => setCPrice(e.target.value)}
-                        />
-                      </div>
-                    </div>
+                    <p className="text-sm text-[var(--text-secondary)]">
+                      You&apos;ll set the price and connect payouts in the next
+                      step — premium channels stay locked until then.
+                    </p>
                   )}
 
                   {createError && (
