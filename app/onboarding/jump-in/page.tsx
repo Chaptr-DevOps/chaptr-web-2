@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { PartyPopper } from 'lucide-react'
 import { OnboardingShell } from '@/components/onboarding-shell'
 import { Button } from '@/components/ui/button'
@@ -9,7 +8,6 @@ import { completeOnboarding } from '../actions'
 import { takePendingRedirect } from '@/lib/pending-redirect'
 
 export default function JumpInStep() {
-  const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -27,8 +25,15 @@ export default function JumpInStep() {
       sessionStorage.removeItem('onboarding_book')
       // A user who arrived from an invite link finishes onboarding at the group
       // that invited them, not on a generic home feed.
-      router.push(takePendingRedirect() ?? '/home')
-      router.refresh()
+      const destination = takePendingRedirect() ?? '/home'
+      // A full navigation, not router.push(). This was `push()` immediately
+      // followed by `refresh()`, and the two raced: refresh re-fetched the
+      // *current* route before the push committed, so the user was re-rendered
+      // back onto this page — the button appeared to work, then nothing
+      // happened. A document navigation also guarantees the app shell renders
+      // with the just-completed profile instead of a cached logged-out payload.
+      window.location.assign(destination)
+      return
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong.')
     } finally {
