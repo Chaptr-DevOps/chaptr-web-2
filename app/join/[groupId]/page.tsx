@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation'
 import type { Metadata } from 'next'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getProfile } from '@/lib/queries'
+import { getAuthUser, getProfile } from '@/lib/queries'
 import { isUuid } from '@/lib/route-params'
 import { GroupPreviewClient } from './preview-client'
 import type { PreviewBook, PreviewChannel, PreviewMember } from './preview-client'
@@ -74,11 +74,12 @@ export default async function GroupPreviewPage({
 
   const supabase = await createClient()
   const profile = await getProfile()
+  const authUser = await getAuthUser()
 
   const { data: group } = await supabase
     .from('reading_groups')
     .select(
-      'id, name, description, banner_image_url, is_public, is_paid, price, reading_pace, member_limit, current_book_target_end_date, current_book:books(title, author, cover_image_url, total_chapters, total_pages, description, genres, average_rating, total_ratings)',
+      'id, name, description, banner_image_url, is_public, is_paid, price, reading_pace, member_limit, current_book_target_end_date, created_by, current_book:books(title, author, cover_image_url, total_chapters, total_pages, description, genres, average_rating, total_ratings)',
     )
     .eq('id', groupId)
     .maybeSingle()
@@ -108,18 +109,23 @@ export default async function GroupPreviewPage({
 
   // Members joined a reading group; they did not agree to appear on a public
   // page a search engine can index. Anonymous visitors get the count plus the
-  // host — the host is the creator promoting this link, so their name is the
-  // pitch rather than a leak, and "Hosted by X" is much of why the page is
-  // trusted. Ordinary members stay anonymous.
+  // host — the host is the group's creator promoting this link, so their name
+  // is the pitch rather than a leak, and "Hosted by X" is much of why the page
+  // is trusted. Ordinary members (and any non-creator admin) stay anonymous.
+  // `created_by` is nullable, so a group with no recorded creator shows no
+  // host rather than degrading to "any admin".
   const memberQuery = supabase
     .from('group_memberships')
     .select('role, user:users(id, username, display_name, avatar_url, profile_image_url)')
     .eq('group_id', groupId)
     .eq('is_active', true)
 
-  const { data: memberRows } = profile
-    ? await memberQuery.limit(8)
-    : await memberQuery.eq('role', 'admin').limit(1)
+  let memberRows: Array<{ role: string; user: unknown }> | null = null
+  if (profile) {
+    ;({ data: memberRows } = await memberQuery.limit(8))
+  } else if (group.created_by) {
+    ;({ data: memberRows } = await memberQuery.eq('user_id', group.created_by).limit(1))
+  }
 
   const { count: memberCount } = await supabase
     .from('group_memberships')
@@ -170,7 +176,7 @@ export default async function GroupPreviewPage({
       members={members}
       memberCount={memberCount ?? 0}
       weeklyMessages={weeklyMessages}
-      isSignedIn={Boolean(profile)}
+      isSignedIn={Boolean(authUser)}
     />
   )
 }

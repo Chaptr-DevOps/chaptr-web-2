@@ -244,17 +244,19 @@ export function GroupPreviewClient({
                   {memberCount >= 2 && (
                     <>
                       <span className="mx-1">•</span>
-                      <span className="flex items-center">
-                        {members.slice(0, 3).map((m, i) => (
-                          <Avatar
-                            key={m.id}
-                            src={m.avatarUrl}
-                            name={m.name}
-                            size={24}
-                            className={cn('ring-2 ring-background', i > 0 && '-ml-2')}
-                          />
-                        ))}
-                      </span>
+                      {isSignedIn && (
+                        <span className="flex items-center">
+                          {members.slice(0, 3).map((m, i) => (
+                            <Avatar
+                              key={m.id}
+                              src={m.avatarUrl}
+                              name={m.name}
+                              size={24}
+                              className={cn('ring-2 ring-background', i > 0 && '-ml-2')}
+                            />
+                          ))}
+                        </span>
+                      )}
                       <span className="ml-1 font-medium">
                         {memberCount > 3
                           ? `+ ${memberCount - 3} members`
