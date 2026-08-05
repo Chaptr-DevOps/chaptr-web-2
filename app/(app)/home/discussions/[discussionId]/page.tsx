@@ -38,6 +38,26 @@ export default async function DiscussionDetailPage({ params }: PageProps) {
     redirect('/home')
   }
 
+  // Second layer behind the RLS chapter gate — a deep link to a thread stamped
+  // above the reader's progress must not resolve. RLS should already have
+  // returned nothing above, but this page is the one place a spoiler can be
+  // reached by guessing a URL, so the check is stated explicitly here too.
+  if (discussion.book_id && typeof discussion.chapter_number === 'number') {
+    const { data: progressRows } = await supabase
+      .from('reading_progress')
+      .select('current_chapter')
+      .eq('user_id', profile.id)
+      .eq('book_id', discussion.book_id)
+
+    const furthestChapter = (progressRows ?? []).reduce(
+      (max, r) => Math.max(max, r.current_chapter ?? 0),
+      0,
+    )
+    if (discussion.chapter_number > furthestChapter) {
+      redirect('/home')
+    }
+  }
+
   const [{ data: book }, { data: comments, error: commentsError }] = await Promise.all([
     discussion.book_id
       ? supabase.from('books').select('title').eq('id', discussion.book_id).maybeSingle()

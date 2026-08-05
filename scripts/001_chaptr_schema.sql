@@ -1078,8 +1078,12 @@ create policy "Reading progress based discussion visibility" on public.discussio
         and rp.current_chapter >= discussions.chapter_number
     ))
   );
-create policy "Users can view non-hidden discussions" on public.discussions
-  for select to authenticated using (
+-- RESTRICTIVE, and it must stay that way. This was PERMISSIVE until 2026-08-05,
+-- which meant Postgres OR'd it with the gate above — `hidden_by_reports = false`
+-- is true for nearly every row, so the chapter gate was dead and every reader
+-- saw every thread at every chapter. Report-hiding is a FILTER, not a GRANT.
+create policy "Hide reported discussions" on public.discussions
+  as restrictive for select using (
     hidden_by_reports = false or hidden_by_reports is null or user_id = auth.uid()
     or exists (select 1 from users where users.id = auth.uid() and users.is_admin = true)
   );
@@ -1103,33 +1107,32 @@ create policy "Authors and moderators can delete discussions" on public.discussi
   );
 
 -- -------------------------------------------------------------- comments ----
-create policy "Users can view comments based on reading progress" on public.comments
+-- A comment is visible exactly when its parent discussion is. This replaced
+-- three OR'd permissive policies (2026-08-05) — the blanket non-hidden grant
+-- and an `is_spoiler_gated = false` escape hatch both defeated the gate, and a
+-- third keyed off chapter_completions while discussions key off
+-- reading_progress.current_chapter.
+create policy "Reading progress based comment visibility" on public.comments
   for select using (
     auth.uid() is not null
-    and (is_spoiler_gated = false or is_spoiler_gated is null or exists (
-      select 1 from discussions d
-      left join reading_progress rp on rp.book_id = d.book_id
+    and exists (
+      select 1 from public.discussions d
       where d.id = comments.discussion_id
-        and rp.user_id = auth.uid()
-        and rp.current_chapter >= d.chapter_number
-    ))
-  );
-create policy "Users can view comments on accessible discussions" on public.comments
-  for select using (
-    discussion_id in (
-      select d.id from discussions d
-      left join group_memberships gm on d.group_id = gm.group_id
-      where (d.group_id is null or (gm.user_id = auth.uid() and gm.is_active = true))
-        and (d.chapter_number is null or auth.uid() in (
-          select cc.user_id from chapter_completions cc
-          where cc.chapter_number = d.chapter_number
-            and cc.book_id = d.book_id
-            and (cc.group_id = d.group_id or cc.group_id is null)
+        and (d.group_id is null or auth.uid() in (
+          select gm.user_id from public.group_memberships gm
+          where gm.group_id = d.group_id and gm.is_active = true
+        ))
+        and (d.chapter_number is null or exists (
+          select 1 from public.reading_progress rp
+          where rp.book_id = d.book_id
+            and rp.user_id = auth.uid()
+            and rp.current_chapter >= d.chapter_number
         ))
     )
   );
-create policy "Users can view non-hidden comments" on public.comments
-  for select to authenticated using (
+-- RESTRICTIVE: report-hiding is a filter, not a grant. See the discussions note.
+create policy "Hide reported comments" on public.comments
+  as restrictive for select using (
     hidden_by_reports = false or hidden_by_reports is null or user_id = auth.uid()
     or exists (select 1 from users where users.id = auth.uid() and users.is_admin = true)
   );

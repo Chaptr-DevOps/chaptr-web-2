@@ -153,8 +153,14 @@ export default async function HomePage() {
         ? Math.round(completedValues.reduce((a, b) => a + b, 0) / completedValues.length)
         : null
 
+      // Chapter gate, mirroring the `Reading progress based discussion
+      // visibility` RLS policy: a thread stamped at chapter N is a spoiler
+      // until you've reached N. RLS enforces this too — this is the second
+      // layer, because the DB gate silently sat dead behind an over-permissive
+      // policy for a long time and nothing here caught it.
       const scopedDiscussions = (discussionsByBook.get(p.book_id) ?? [])
         .filter((d) => d.scope_type === 'general' || (d.scope_type === 'group' && d.group_id === p.group_id))
+        .filter((d) => typeof d.chapter_number === 'number' && d.chapter_number <= (p.current_chapter ?? 0))
         .slice(0, 10)
 
       const entry: BookSwitcherEntry = {
