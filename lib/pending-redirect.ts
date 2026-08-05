@@ -72,6 +72,17 @@ export function takePendingRedirect(): string | null {
   return isSafeRedirect(entry.path) ? entry.path : null
 }
 
+/**
+ * The destination named by the current auth page's `?redirect=`, or /home.
+ * Shared by every auth entry point so the same-origin rule is applied once
+ * rather than re-implemented per page.
+ */
+export function currentRedirectTarget(): string {
+  if (typeof window === 'undefined') return '/home'
+  const requested = new URLSearchParams(window.location.search).get('redirect')
+  return isSafeRedirect(requested) ? requested : '/home'
+}
+
 /** Build an auth-page href that carries the current `?redirect=` onward. */
 export function withRedirectParam(href: string, redirect: string | null): string {
   return isSafeRedirect(redirect)

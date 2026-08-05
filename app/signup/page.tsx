@@ -9,6 +9,7 @@ import {
   withRedirectParam,
 } from '@/lib/pending-redirect'
 import { AuthFrame } from '@/components/auth-frame'
+import { OAuthButtons } from '@/components/oauth-buttons'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -119,6 +120,14 @@ export default function SignUpPage() {
           {loading ? 'Creating account...' : 'Create account'}
         </Button>
       </form>
+
+      {/*
+        Google only. The destination was already parked in localStorage on
+        mount, so a new account created this way still lands where it was
+        headed once onboarding finishes.
+      */}
+      <OAuthButtons providers={['google']} />
+
       <p className="mt-6 text-center text-sm text-[var(--text-secondary)]">
         Already have an account?{' '}
         <Link href={signinHref} className="font-medium text-primary hover:underline">

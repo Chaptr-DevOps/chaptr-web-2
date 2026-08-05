@@ -3,23 +3,15 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
-import { isSafeRedirect, withRedirectParam } from '@/lib/pending-redirect'
+import {
+  currentRedirectTarget,
+  withRedirectParam,
+} from '@/lib/pending-redirect'
 import { AuthFrame } from '@/components/auth-frame'
+import { OAuthButtons } from '@/components/oauth-buttons'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-
-/**
- * Where to land after signing in. Pages that need the user back afterwards —
- * notably a group's subscribe page — link here with `?redirect=/some/path`.
- * Only same-origin paths are honoured, so the parameter can't be used to bounce
- * someone to an external site.
- */
-function redirectTarget(): string {
-  if (typeof window === 'undefined') return '/home'
-  const requested = new URLSearchParams(window.location.search).get('redirect')
-  return isSafeRedirect(requested) ? requested : '/home'
-}
 
 export default function SignInPage() {
   const [email, setEmail] = useState('')
@@ -56,31 +48,7 @@ export default function SignInPage() {
     // guarantees the server sees the session cookie that was just set and
     // renders the destination fresh, rather than replaying a payload the
     // router cached while the visitor was logged out.
-    window.location.assign(redirectTarget())
-  }
-
-  async function oauth(provider: 'google' | 'apple') {
-    setError(null)
-    const supabase = createClient()
-    const base =
-      process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL ??
-      `${window.location.origin}/auth/callback`
-    // /auth/callback forwards to `next` once the code is exchanged.
-    const callback = new URL(base)
-    callback.searchParams.set('next', redirectTarget())
-
-    // On success this redirects away, so nothing after it runs. On failure it
-    // resolves with an error and the page just sits there — which is how a
-    // provider that's enabled but misconfigured (Apple with no OAuth secret,
-    // say) reads as a dead button. Surface it instead of swallowing it.
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider,
-      options: { redirectTo: callback.toString() },
-    })
-    if (error) {
-      const label = provider === 'apple' ? 'Apple' : 'Google'
-      setError(`Couldn't continue with ${label}. ${error.message}`)
-    }
+    window.location.assign(currentRedirectTarget())
   }
 
   return (
@@ -125,22 +93,7 @@ export default function SignInPage() {
         </Button>
       </form>
 
-      <div className="my-6 flex items-center gap-3">
-        <span className="h-px flex-1 bg-[var(--border-main)]" />
-        <span className="text-xs text-[var(--text-tertiary)]">
-          or continue with
-        </span>
-        <span className="h-px flex-1 bg-[var(--border-main)]" />
-      </div>
-
-      <div className="grid grid-cols-2 gap-3">
-        <Button variant="outline" onClick={() => oauth('google')}>
-          Google
-        </Button>
-        <Button variant="outline" onClick={() => oauth('apple')}>
-          Apple
-        </Button>
-      </div>
+      <OAuthButtons providers={['google', 'apple']} />
 
       <p className="mt-6 text-center text-sm text-[var(--text-secondary)]">
         New to Chaptr?{' '}
