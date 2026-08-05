@@ -141,7 +141,12 @@ export default async function GroupPreviewPage({
         id: u.id,
         name: u.display_name ?? u.username ?? 'Reader',
         avatarUrl: u.avatar_url ?? u.profile_image_url ?? null,
-        isHost: row.role === 'admin',
+        // The anonymous branch fetched exactly one row and keyed it on
+        // `created_by`, so that row IS the host by construction — reading the
+        // role there would drop "Hosted by" for a creator who never got the
+        // admin role. Signed-in visitors get every member, so the role is the
+        // only thing that distinguishes the host among them.
+        isHost: profile ? row.role === 'admin' : true,
       }
     })
     .filter(Boolean) as PreviewMember[]
