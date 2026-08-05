@@ -135,8 +135,9 @@ export function GroupsClient({ myGroups, publicGroups }: GroupsClientProps) {
         // The code only identifies the group — joining happens on the preview
         // page, so every route into a group goes through the same screen.
         closeModal()
+        // No router.refresh(): resolveInviteCode only reads, so there is
+        // nothing to invalidate, and refresh() can race the push away.
         router.push(res.alreadyMember ? `/groups/${res.groupId}` : `/join/${res.groupId}`)
-        router.refresh()
       }
     })
   }

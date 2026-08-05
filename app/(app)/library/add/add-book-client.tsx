@@ -76,8 +76,9 @@ export function AddBookClient({ initialShelves }: { initialShelves: CustomShelf[
             selectedShelfIds.map((shelfId) => addBookToCustomShelf(shelfId, res.bookId!))
           )
         }
+        // No router.refresh() here: addBookToShelf already revalidates
+        // /library and /home, and refresh() racing the push can discard it.
         router.push(selectedShelf === 'reading' ? `/library/notes/${res.bookId}` : '/library')
-        router.refresh()
       }
     })
   }
@@ -105,8 +106,9 @@ export function AddBookClient({ initialShelves }: { initialShelves: CustomShelf[
             selectedShelfIds.map((shelfId) => addBookToCustomShelf(shelfId, res.bookId!))
           )
         }
+        // No router.refresh() here: addBookToShelf already revalidates
+        // /library and /home, and refresh() racing the push can discard it.
         router.push(selectedShelf === 'reading' ? `/library/notes/${res.bookId}` : '/library')
-        router.refresh()
       }
     })
   }

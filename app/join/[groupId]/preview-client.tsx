@@ -131,8 +131,11 @@ export function GroupPreviewClient({
         setShowGuidelines(false)
         return
       }
+      // No router.refresh(): joinGroupAction already revalidates /groups and
+      // this group's page, and refresh() re-fetches the *current* route — so
+      // firing it here raced the navigation away and could leave a member
+      // sitting on the preview they just joined from.
       router.replace(`/groups/${group.id}`)
-      router.refresh()
     })
   }
 

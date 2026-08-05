@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname } from 'next/navigation'
 import {
   Home,
   Users,
@@ -32,7 +32,6 @@ export function AppShell({
   children: React.ReactNode
 }) {
   const pathname = usePathname()
-  const router = useRouter()
 
   const isActive = (href: string) =>
     pathname === href || pathname.startsWith(href + '/')
@@ -40,8 +39,11 @@ export function AppShell({
   async function signOut() {
     const supabase = createClient()
     await supabase.auth.signOut()
-    router.push('/signin')
-    router.refresh()
+    // A document navigation, not router.push() + router.refresh(): those two
+    // race, and refresh() re-fetching the current route can discard the push.
+    // Signing out also has to drop every cached authed payload the router is
+    // holding, which only a real navigation guarantees.
+    window.location.assign('/signin')
   }
 
   return (
