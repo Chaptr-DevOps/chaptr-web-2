@@ -60,6 +60,7 @@ export default function SignInPage() {
   }
 
   async function oauth(provider: 'google' | 'apple') {
+    setError(null)
     const supabase = createClient()
     const base =
       process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL ??
@@ -68,10 +69,18 @@ export default function SignInPage() {
     const callback = new URL(base)
     callback.searchParams.set('next', redirectTarget())
 
-    await supabase.auth.signInWithOAuth({
+    // On success this redirects away, so nothing after it runs. On failure it
+    // resolves with an error and the page just sits there — which is how a
+    // provider that's enabled but misconfigured (Apple with no OAuth secret,
+    // say) reads as a dead button. Surface it instead of swallowing it.
+    const { error } = await supabase.auth.signInWithOAuth({
       provider,
       options: { redirectTo: callback.toString() },
     })
+    if (error) {
+      const label = provider === 'apple' ? 'Apple' : 'Google'
+      setError(`Couldn't continue with ${label}. ${error.message}`)
+    }
   }
 
   return (
