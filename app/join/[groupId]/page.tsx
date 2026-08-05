@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation'
+import type { Metadata } from 'next'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getProfile } from '@/lib/queries'
@@ -14,6 +15,52 @@ export const dynamic = 'force-dynamic'
  * directly. This route used to auto-join on GET; the write now lives in
  * `joinGroupAction` and only fires from the Join button.
  */
+/**
+ * The unfurl is the first impression when a creator pastes this link into a bio,
+ * so it carries the group's identity. Uses the session client deliberately: RLS
+ * then gives an anonymous crawler exactly what an anonymous visitor may see, and
+ * a private or missing group falls back to generic copy rather than leaking a name.
+ */
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ groupId: string }>
+}): Promise<Metadata> {
+  const fallback: Metadata = { title: 'Join a reading group · Chaptr' }
+  const { groupId } = await params
+  if (!isUuid(groupId)) return fallback
+
+  const supabase = await createClient()
+  const { data: group } = await supabase
+    .from('reading_groups')
+    .select('name, description, banner_image_url')
+    .eq('id', groupId)
+    .maybeSingle()
+
+  if (!group) return fallback
+
+  const title = `Join ${group.name} · Chaptr`
+  const description =
+    group.description ?? `Read ${group.name} together on Chaptr.`
+
+  return {
+    title,
+    description,
+    openGraph: {
+      title,
+      description,
+      type: 'website',
+      images: group.banner_image_url ? [group.banner_image_url] : undefined,
+    },
+    twitter: {
+      card: group.banner_image_url ? 'summary_large_image' : 'summary',
+      title,
+      description,
+      images: group.banner_image_url ? [group.banner_image_url] : undefined,
+    },
+  }
+}
+
 export default async function GroupPreviewPage({
   params,
 }: {
