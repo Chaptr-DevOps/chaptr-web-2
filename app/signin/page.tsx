@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { isSafeRedirect, withRedirectParam } from '@/lib/pending-redirect'
 import { AuthFrame } from '@/components/auth-frame'
@@ -23,7 +22,6 @@ function redirectTarget(): string {
 }
 
 export default function SignInPage() {
-  const router = useRouter()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -51,8 +49,14 @@ export default function SignInPage() {
       setLoading(false)
       return
     }
-    router.push(redirectTarget())
-    router.refresh()
+    // A document navigation, not router.push() + router.refresh(). Those two
+    // raced: refresh re-fetches the *current* route, and firing it before the
+    // push committed re-rendered the sign-in page and discarded the
+    // navigation — the form appeared to submit, then nothing happened. It also
+    // guarantees the server sees the session cookie that was just set and
+    // renders the destination fresh, rather than replaying a payload the
+    // router cached while the visitor was logged out.
+    window.location.assign(redirectTarget())
   }
 
   async function oauth(provider: 'google' | 'apple') {
