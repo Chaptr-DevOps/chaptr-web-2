@@ -12,8 +12,16 @@ export default async function AppLayout({
 
   const profile = await getProfile()
 
-  // If they haven't finished onboarding, send them there (unless no username yet)
-  if (profile && !profile.onboarding_completed_at && !profile.username) {
+  // Onboarding is gated on state, not on which door someone came through.
+  //
+  // The `!profile.username` half of this check used to be here too, and it made
+  // the whole condition dead: `handle_new_user` inserts the profile row with
+  // `username` already filled in (from user metadata, falling back to the email
+  // local-part), so it is never null for anyone. /signup only reached onboarding
+  // because it pushes there itself — anyone arriving any other way, notably an
+  // OAuth user returning through /auth/callback, walked straight into the app
+  // with an auto-generated username they never chose.
+  if (profile && !profile.onboarding_completed_at) {
     redirect('/onboarding/username')
   }
 
