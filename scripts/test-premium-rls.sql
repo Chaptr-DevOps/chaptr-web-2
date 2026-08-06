@@ -22,7 +22,7 @@ insert into public.reading_groups (id, name, created_by, is_paid, price) values
    'aaaaaaaa-0000-0000-0000-000000000001', true, 5);
 
 insert into public.group_memberships (group_id, user_id, role, is_active) values
-  ('bbbbbbbb-0000-0000-0000-000000000001','aaaaaaaa-0000-0000-0000-000000000001','admin',     true),
+  ('bbbbbbbb-0000-0000-0000-000000000001','aaaaaaaa-0000-0000-0000-000000000001','member',    true),
   ('bbbbbbbb-0000-0000-0000-000000000001','aaaaaaaa-0000-0000-0000-000000000002','admin',     true),
   ('bbbbbbbb-0000-0000-0000-000000000001','aaaaaaaa-0000-0000-0000-000000000003','moderator', true),
   ('bbbbbbbb-0000-0000-0000-000000000001','aaaaaaaa-0000-0000-0000-000000000004','member',    true),
