@@ -859,10 +859,14 @@ as $$
                  and m.is_active
                  and m.role in ('admin'::public.group_role,
                                 'moderator'::public.group_role))
+    -- 'past_due' is deliberate: Stripe writes its status verbatim, so a failed
+    -- renewal sits here for ~2 weeks of dunning retries. That member is still
+    -- paying and has not cancelled. When Stripe gives up the status becomes
+    -- 'unpaid' or 'canceled' and access ends. (premium_access_grace_during_dunning)
     or exists (select 1 from public.group_subscribers s
                where s.group_id = p_group_id
                  and s.subscriber_id = auth.uid()
-                 and s.status = 'active');
+                 and s.status in ('active', 'trialing', 'past_due'));
 $$;
 
 create or replace function public.can_read_channel(p_channel_id uuid)
@@ -1354,9 +1358,10 @@ create policy "payout_account_update_own" on public.creator_payout_accounts
 --      select polname, polpermissive from pg_policy
 --       where polname like 'premium_%';   -- polpermissive must be false
 --
---    Also note the entitlement is the literal group_subscribers.status =
---    'active'. Stripe's past_due and trialing statuses are written verbatim by
---    the webhook, so they do NOT grant access.
+--    The subscriber branch accepts status in ('active','trialing','past_due').
+--    past_due is intentional: the webhook writes Stripe's status verbatim, so a
+--    failed renewal sits there through ~2 weeks of dunning while the member is
+--    still paying. 'unpaid' and 'canceled' do NOT grant access.
 --
 -- 2. message_reactions.message_id FKs to group_messages, not channel_messages.
 --    Any web code writing message_reactions for a channel message will fail the

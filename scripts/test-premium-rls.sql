@@ -15,7 +15,9 @@ insert into public.users (id, username) values
   ('aaaaaaaa-0000-0000-0000-000000000004', 'rlstest_sub'),
   ('aaaaaaaa-0000-0000-0000-000000000005', 'rlstest_lapsed'),
   ('aaaaaaaa-0000-0000-0000-000000000006', 'rlstest_member'),
-  ('aaaaaaaa-0000-0000-0000-000000000007', 'rlstest_stranger');
+  ('aaaaaaaa-0000-0000-0000-000000000007', 'rlstest_stranger'),
+  ('aaaaaaaa-0000-0000-0000-000000000008', 'rlstest_pastdue'),
+  ('aaaaaaaa-0000-0000-0000-000000000009', 'rlstest_unpaid');
 
 insert into public.reading_groups (id, name, created_by, is_paid, price) values
   ('bbbbbbbb-0000-0000-0000-000000000001', 'RLS Test Group',
@@ -27,7 +29,9 @@ insert into public.group_memberships (group_id, user_id, role, is_active) values
   ('bbbbbbbb-0000-0000-0000-000000000001','aaaaaaaa-0000-0000-0000-000000000003','moderator', true),
   ('bbbbbbbb-0000-0000-0000-000000000001','aaaaaaaa-0000-0000-0000-000000000004','member',    true),
   ('bbbbbbbb-0000-0000-0000-000000000001','aaaaaaaa-0000-0000-0000-000000000005','member',    true),
-  ('bbbbbbbb-0000-0000-0000-000000000001','aaaaaaaa-0000-0000-0000-000000000006','member',    true);
+  ('bbbbbbbb-0000-0000-0000-000000000001','aaaaaaaa-0000-0000-0000-000000000006','member',    true),
+  ('bbbbbbbb-0000-0000-0000-000000000001','aaaaaaaa-0000-0000-0000-000000000008','member',    true),
+  ('bbbbbbbb-0000-0000-0000-000000000001','aaaaaaaa-0000-0000-0000-000000000009','member',    true);
 -- user ...007 is deliberately not a member
 
 insert into public.group_channels (id, group_id, name, channel_type, is_premium, position) values
@@ -42,7 +46,13 @@ insert into public.channel_messages (id, channel_id, user_id, content) values
 
 insert into public.group_subscribers (group_id, subscriber_id, status) values
   ('bbbbbbbb-0000-0000-0000-000000000001','aaaaaaaa-0000-0000-0000-000000000004','active'),
-  ('bbbbbbbb-0000-0000-0000-000000000001','aaaaaaaa-0000-0000-0000-000000000005','canceled');
+  ('bbbbbbbb-0000-0000-0000-000000000001','aaaaaaaa-0000-0000-0000-000000000005','canceled'),
+  -- Stripe writes its own status verbatim (webhooks/stripe/route.ts:75).
+  -- past_due means the card failed and Stripe is still retrying — the member
+  -- is still paying and has not cancelled, so they keep access during dunning.
+  -- unpaid means Stripe gave up; access ends.
+  ('bbbbbbbb-0000-0000-0000-000000000001','aaaaaaaa-0000-0000-0000-000000000008','past_due'),
+  ('bbbbbbbb-0000-0000-0000-000000000001','aaaaaaaa-0000-0000-0000-000000000009','unpaid');
 
 create temp table rls_results (
   label text, expect boolean, got_channel boolean, got_message boolean
@@ -84,6 +94,16 @@ insert into rls_results values ('plain member', false,
 
 set local request.jwt.claims = '{"sub":"aaaaaaaa-0000-0000-0000-000000000007","role":"authenticated"}';
 insert into rls_results values ('non-member', false,
+  exists(select 1 from public.group_channels   where id='cccccccc-0000-0000-0000-000000000002'),
+  exists(select 1 from public.channel_messages where id='dddddddd-0000-0000-0000-000000000002'));
+
+set local request.jwt.claims = '{"sub":"aaaaaaaa-0000-0000-0000-000000000008","role":"authenticated"}';
+insert into rls_results values ('past_due subscriber (dunning)', true,
+  exists(select 1 from public.group_channels   where id='cccccccc-0000-0000-0000-000000000002'),
+  exists(select 1 from public.channel_messages where id='dddddddd-0000-0000-0000-000000000002'));
+
+set local request.jwt.claims = '{"sub":"aaaaaaaa-0000-0000-0000-000000000009","role":"authenticated"}';
+insert into rls_results values ('unpaid subscriber (dunning exhausted)', false,
   exists(select 1 from public.group_channels   where id='cccccccc-0000-0000-0000-000000000002'),
   exists(select 1 from public.channel_messages where id='dddddddd-0000-0000-0000-000000000002'));
 

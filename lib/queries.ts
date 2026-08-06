@@ -43,6 +43,18 @@ export async function isSubscribedToGroup(groupId: string): Promise<boolean> {
 }
 
 /**
+ * Subscription statuses that still grant premium access.
+ *
+ * The Stripe webhook writes Stripe's status verbatim, so a failed renewal
+ * lands as `past_due` while dunning retries for ~2 weeks. That member is still
+ * paying and has not cancelled, so they keep access; when Stripe gives up the
+ * status becomes `unpaid` or `canceled` and access ends.
+ *
+ * Must match `status in (...)` in public.has_group_premium_access().
+ */
+const PREMIUM_ACCESS_STATUSES = ['active', 'trialing', 'past_due'] as const
+
+/**
  * True if the current user may see this group's premium channels.
  *
  * Mirrors public.has_group_premium_access() in the database — if you change
@@ -51,8 +63,9 @@ export async function isSubscribedToGroup(groupId: string): Promise<boolean> {
  * decide what to render without discovering access by getting back no rows.
  *
  * Note this is deliberately broader than isSubscribedToGroup: an owner or an
- * admin/moderator has premium access without being a paying subscriber. Use
- * isSubscribedToGroup for billing UI, where that distinction matters.
+ * admin/moderator has premium access without being a paying subscriber, and a
+ * subscriber mid-dunning still has access. Use isSubscribedToGroup for billing
+ * UI, where the strict 'active' distinction matters.
  */
 export async function hasGroupPremiumAccess(groupId: string): Promise<boolean> {
   const supabase = await createClient()
@@ -77,5 +90,12 @@ export async function hasGroupPremiumAccess(groupId: string): Promise<boolean> {
     .maybeSingle()
   if (membership?.role === 'admin' || membership?.role === 'moderator') return true
 
-  return isSubscribedToGroup(groupId)
+  const { data: subscription } = await supabase
+    .from('group_subscribers')
+    .select('id')
+    .eq('subscriber_id', user.id)
+    .eq('group_id', groupId)
+    .in('status', PREMIUM_ACCESS_STATUSES as unknown as string[])
+    .maybeSingle()
+  return Boolean(subscription)
 }
