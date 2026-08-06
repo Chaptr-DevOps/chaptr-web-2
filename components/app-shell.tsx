@@ -12,6 +12,7 @@ import {
   LogOut,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { AppBanner } from '@/components/app-banner'
 import { Avatar } from '@/components/ui/avatar'
 import { createClient } from '@/lib/supabase/client'
 import type { UserProfile } from '@/lib/types'
@@ -98,8 +99,15 @@ export function AppShell({
         </div>
       </aside>
 
-      {/* Main content */}
-      <main className="min-w-0 flex-1 pb-24 md:pb-8">{children}</main>
+      {/*
+        Main content. The banner lives inside this column rather than above the
+        whole shell so the sticky `h-svh` sidebar and the fixed bottom nav keep
+        their own full-height geometry.
+      */}
+      <main className="min-w-0 flex-1 pb-24 md:pb-8">
+        <AppBanner />
+        {children}
+      </main>
 
       {/* Mobile bottom nav */}
       <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-[var(--border-main)] bg-[var(--surface)]/95 backdrop-blur md:hidden">
