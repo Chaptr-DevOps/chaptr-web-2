@@ -22,7 +22,7 @@ export default function GenresStep() {
   async function next() {
     setSaving(true)
     await saveGenres(selected)
-    router.push('/onboarding/goal')
+    router.push('/onboarding/jump-in')
   }
 
   return (

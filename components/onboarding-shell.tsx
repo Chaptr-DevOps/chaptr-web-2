@@ -1,7 +1,7 @@
 import { BookOpen } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-const STEPS = ['username', 'books', 'chapter', 'genres', 'goal', 'jump-in']
+const STEPS = ['username', 'books', 'chapter', 'genres', 'jump-in']
 
 export function OnboardingShell({
   step,

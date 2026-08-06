@@ -83,23 +83,6 @@ export async function saveGenres(genres: string[]) {
   return { error: error?.message ?? null }
 }
 
-export async function saveGoal(pace: string, weeklyPages: number) {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) return { error: 'Not authenticated' }
-  const yearly = Math.round((weeklyPages * 52) / 320) // rough books/yr estimate
-  const { error } = await supabase
-    .from('users')
-    .update({
-      yearly_reading_goal: yearly,
-      average_reading_speed: weeklyPages,
-    })
-    .eq('id', user.id)
-  return { error: error?.message ?? null }
-}
-
 export async function completeOnboarding() {
   const supabase = await createClient()
   const {
