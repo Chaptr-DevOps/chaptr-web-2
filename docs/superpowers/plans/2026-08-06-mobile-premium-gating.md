@@ -16,6 +16,8 @@
 - Web type checking is `npx tsc --noEmit` run unfiltered. `pnpm build` ignores type errors and `pnpm lint` does not run in this repo.
 - `scripts/001_chaptr_schema.sql` is a **reference mirror, never executed**. Schema changes go through `apply_migration` against the live project, then the file is re-dumped.
 - Subscription status lives in `group_subscribers.status = 'active'` (text, not an enum). The table is `group_subscribers`, not `group_subscriptions` — CLAUDE.md is stale on this.
+- **All SQL runs through the Supabase MCP against production, `project_id` `ayaihmsohyniodvxfjqx`.** `psql` is not installed and `DATABASE_URL` is not set — ignore any `psql` invocation that survives elsewhere in this plan. Use `execute_sql` for queries and `apply_migration` for DDL.
+- Web work is on branch `premium-gating` (off `main`). RN work is on branch `premium-gating` (off `master`) in `~/Desktop/Chaptr`, whose working tree has **5 pre-existing modified files unrelated to this plan** — never `git add -A` there; stage only the specific file the task names.
 
 ## Audit results (already completed — do not redo)
 
@@ -64,8 +66,9 @@ Create `scripts/test-premium-rls.sql`:
 
 ```sql
 -- Premium-channel RLS assertions.
--- Run:  supabase MCP execute_sql, or psql -f scripts/test-premium-rls.sql
--- Always rolls back. Safe to run against any environment.
+-- Run: paste this whole file into Supabase MCP execute_sql
+--      (project_id ayaihmsohyniodvxfjqx). psql is NOT installed locally.
+-- Always rolls back. Safe to run against production.
 --
 -- public.users has NO foreign key to auth.users, so fixture users can be
 -- inserted directly. auth.uid() is simulated via request.jwt.claims.
@@ -185,10 +188,21 @@ rollback;
 
 - [ ] **Step 2: Run it and confirm it FAILS**
 
-Run the file's contents through Supabase MCP `execute_sql`, or:
+Pass the file's entire contents as the `query` argument to
+`mcp__plugin_supabase_supabase__execute_sql` with `project_id`
+`ayaihmsohyniodvxfjqx`. There is no local `psql` and no `DATABASE_URL`.
 
-```bash
-psql "$DATABASE_URL" -f scripts/test-premium-rls.sql
+If the MCP rejects a multi-statement query, drop the `begin;`/`rollback;`
+lines, run the script in sequential chunks, and finish with an explicit
+cleanup instead of the rollback:
+
+```sql
+delete from public.channel_messages where id::text like 'dddddddd-0000%';
+delete from public.group_subscribers where group_id = 'bbbbbbbb-0000-0000-0000-000000000001';
+delete from public.group_channels    where group_id = 'bbbbbbbb-0000-0000-0000-000000000001';
+delete from public.group_memberships where group_id = 'bbbbbbbb-0000-0000-0000-000000000001';
+delete from public.reading_groups    where id       = 'bbbbbbbb-0000-0000-0000-000000000001';
+delete from public.users where username like 'rlstest_%';
 ```
 
 Expected: `ERROR: premium RLS gate: 2 case(s) FAILED`, with the result table showing `lapsed subscriber` and `plain member` as FAIL — both currently see the premium channel and its message, because no policy restricts them. `non-member` already passes (no membership row).
@@ -299,9 +313,7 @@ UPDATE and DELETE on `channel_messages` are intentionally left ungated: a lapsed
 
 - [ ] **Step 2: Re-run the harness and confirm it PASSES**
 
-```bash
-psql "$DATABASE_URL" -f scripts/test-premium-rls.sql
-```
+Re-run `scripts/test-premium-rls.sql` through MCP `execute_sql` exactly as in Task 1 Step 2.
 
 Expected: `NOTICE: premium RLS gate: all cases passed`, and every row in the result table reads PASS — including `plain member sees FREE channel`, which proves the gate did not over-reach.
 
@@ -394,11 +406,29 @@ select schemaname, tablename from pg_publication_tables
 where pubname = 'supabase_realtime' order by tablename;
 ```
 
-- [ ] **Step 2: Decide based on the result**
+Expected: `channel_messages` **is** listed — migration `20260803022003_enable_realtime_for_channel_messages` published it. Confirm that rather than assume it.
 
-If `channel_messages` is **not** listed: nothing can leak through realtime. Record that and move to Task 4.
+- [ ] **Step 2: Assert the policies bind the realtime path**
 
-If it **is** listed: sign in to the web app as a user who is a plain member of a paid group, open devtools, and subscribe directly:
+Realtime evaluates SELECT policies as the subscribing user. Confirm the new policies exist, are restrictive, and apply to `authenticated`:
+
+```sql
+select c.relname as table_name,
+       p.polname,
+       p.polpermissive,
+       pg_get_expr(p.polqual, p.polrelid) as using_expr
+from pg_policy p
+join pg_class c on c.oid = p.polrelid
+where c.relname in ('group_channels','channel_messages','channel_message_reactions')
+  and p.polname like 'premium_%'
+order by c.relname, p.polname;
+```
+
+Expected: five rows, every one with `polpermissive = false`. A `true` there means the policy was created permissive and the paywall is silently disabled.
+
+- [ ] **Step 3: Defer the live probe to Task 7**
+
+A running-client probe needs a logged-in non-subscriber, which does not exist until Task 7 seeds the review accounts. Record in the ledger that the live realtime probe is **deferred to Task 7**, and run it there with this snippet in the web app's devtools as the `appreview+free` account:
 
 ```js
 const ch = supabase.channel('leak-test')
@@ -410,10 +440,12 @@ const ch = supabase.channel('leak-test')
 
 Then, as the group owner in another browser, post a message in a premium channel. Expected: **nothing logs.** If the payload arrives, the realtime path bypasses the new policies and must be fixed before shipping — the usual remedy is enabling RLS enforcement on the publication or moving those subscriptions behind an authorized channel.
 
-- [ ] **Step 3: Commit the finding**
+- [ ] **Step 4: Commit the findings**
+
+Record the publication contents and the five policy rows in the commit message.
 
 ```bash
-git commit --allow-empty -m "test: verify realtime does not bypass premium RLS"
+git commit --allow-empty -m "test: verify premium policies are restrictive; realtime probe deferred to task 7"
 ```
 
 ---
@@ -680,7 +712,7 @@ If rejected under 3.1.3(b), the remedy is additive and invalidates nothing here:
 
 | Gate | Command | Expected |
 |---|---|---|
-| RLS matrix | `psql "$DATABASE_URL" -f scripts/test-premium-rls.sql` | `all cases passed` |
+| RLS matrix | `scripts/test-premium-rls.sql` via MCP `execute_sql` | `all cases passed` |
 | Premium INSERT blocked | Task 2 Step 3 block | `INSERT correctly blocked` |
 | Realtime | `select … from pg_publication_tables` + devtools probe | no premium payload received |
 | Web types | `npx tsc --noEmit` | no errors, run unfiltered |
