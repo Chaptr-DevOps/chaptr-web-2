@@ -226,16 +226,16 @@ of `~/Desktop/Chaptr/src`. Checklist:
 
 ## 6. Migration risk
 
-**The RLS migration changes behaviour for the already-shipped iOS build the
-moment it lands, with no app update.** Mobile users currently see premium
-channels; after the migration those channels disappear from the live app.
+**None.** The iOS app is approved but has never been released, and there are no
+live users. The RLS migration has zero blast radius and can ship immediately
+without sequencing or creator communication.
 
-That is the intended fix, but it is user-visible. Before migrating, confirm how
-many live paid groups have premium channels with active mobile members. If the
-answer is zero the migration is invisible and can ship immediately. If not, it
-needs sequencing with creator communication.
+For future reference, the risk this section originally described: RLS changes
+take effect for already-installed builds instantly, with no app update. Once the
+app is live, any tightening of these policies will silently remove content from
+users' screens.
 
-Also verify: per the project notes the `supabase_realtime` publication was empty
+Still verify: per the project notes the `supabase_realtime` publication was empty
 until 2026-08-02. If `channel_messages` is now published, confirm premium messages
 do not leak through a `postgres_changes` subscription, which applies RLS
 separately from REST reads.
@@ -266,12 +266,24 @@ With these decisions the submission adds no purchase mechanism, price, or
 external link. From review's perspective it is channel-level permissions on a
 free app.
 
-- A demo account **already subscribed** to a paid group, plus one that is not, so
-  the reviewer sees populated channels rather than an empty state they might read
-  as broken.
+- **Seeded review data.** There are no live users, so this has to be built. At
+  minimum: one paid group with a real book, several members, a free channel and a
+  premium channel, and enough genuine-looking message history in both that neither
+  reads as broken or empty. Apps that present empty states to reviewers draw
+  rejections under 2.1 and 4.2 on their own merits, independent of anything to do
+  with gating.
+- A demo account **already subscribed** to that group, plus one that is not, so the
+  reviewer can see both states. Supply both in App Store Connect review notes.
 - Review notes stating plainly: the app is free, every group is free to join, some
   channels are member-tier, and the app sells nothing.
 - No changes to App Store Connect monetization metadata.
+
+Because the app has never been released, a rejection here costs only time — there
+is no live version to disrupt and Apple applies no penalty to the account for a
+rejected submission. Optionally, releasing the already-approved build as 1.0
+before submitting this work as 1.1 makes any rejection non-blocking, at the cost
+of 1.0 briefly shipping with ungated premium channels. At zero users that cost is
+nil. Not chosen yet.
 
 **Residual risk: low but not zero.** Guideline 3.1.3(b) literally reads that
 content acquired elsewhere may be accessed *"provided those items are also
@@ -305,10 +317,10 @@ guideline text before submitting.
 ## 10. Sequencing
 
 1. Audit RN source; confirm the §5 scrub list against actual screens
-2. Confirm §6 migration blast radius (live paid groups with mobile members)
-3. Migration: helpers, grants, restrictive policies
-4. Verify §7 database matrix and Realtime
-5. Web: moderator fix, `hasGroupPremiumAccess` extraction
-6. Mobile: empty-list handling, scrub any surfaces found in step 1
-7. Re-dump `scripts/001_chaptr_schema.sql` (per CLAUDE.md, after any migration)
-8. Assemble §8 review package and submit
+2. Migration: helpers, grants, restrictive policies
+3. Verify §7 database matrix and Realtime
+4. Web: moderator fix, `hasGroupPremiumAccess` extraction
+5. Mobile: empty-list handling, scrub any surfaces found in step 1
+6. Re-dump `scripts/001_chaptr_schema.sql` (per CLAUDE.md, after any migration)
+7. Seed the §8 review data and verify both demo accounts on a real device
+8. Assemble review notes and submit
