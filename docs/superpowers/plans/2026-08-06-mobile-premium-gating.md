@@ -88,8 +88,14 @@ insert into public.reading_groups (id, name, created_by, is_paid, price) values
   ('bbbbbbbb-0000-0000-0000-000000000001', 'RLS Test Group',
    'aaaaaaaa-0000-0000-0000-000000000001', true, 5);
 
+-- The owner is deliberately given role 'member', not 'admin', so the owner
+-- case is entitled ONLY via reading_groups.created_by and genuinely exercises
+-- that branch. The membership row must still exist: the pre-existing permissive
+-- policy "Users can view channels in their groups" requires one to see any
+-- channel at all, so an owner without membership would fail for reasons that
+-- have nothing to do with premium gating.
 insert into public.group_memberships (group_id, user_id, role, is_active) values
-  ('bbbbbbbb-0000-0000-0000-000000000001','aaaaaaaa-0000-0000-0000-000000000001','admin',     true),
+  ('bbbbbbbb-0000-0000-0000-000000000001','aaaaaaaa-0000-0000-0000-000000000001','member',    true),
   ('bbbbbbbb-0000-0000-0000-000000000001','aaaaaaaa-0000-0000-0000-000000000002','admin',     true),
   ('bbbbbbbb-0000-0000-0000-000000000001','aaaaaaaa-0000-0000-0000-000000000003','moderator', true),
   ('bbbbbbbb-0000-0000-0000-000000000001','aaaaaaaa-0000-0000-0000-000000000004','member',    true),
