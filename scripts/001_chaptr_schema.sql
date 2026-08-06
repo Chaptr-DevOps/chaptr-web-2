@@ -834,6 +834,67 @@ create policy "Users can join groups" on public.group_memberships
 create policy "Users can manage own membership" on public.group_memberships
   for update using (auth.uid() = user_id);
 
+-- ─── Premium entitlement helpers ─────────────────────────────────────────────
+-- Added by migration `premium_channel_rls` (2026-08-06).
+--
+-- SECURITY DEFINER is load-bearing, not incidental: it lets these read
+-- group_subscribers / reading_groups / group_channels WITHOUT re-triggering
+-- those tables' own RLS, which is what stops the channel and message policies
+-- from recursing into each other. search_path is pinned for the same reason
+-- every SECURITY DEFINER function should pin it.
+--
+-- auth.uid() works inside them — it reads the request JWT claim, not the
+-- executing role. For an anonymous caller it is NULL, so every branch is false.
+create or replace function public.has_group_premium_access(p_group_id uuid)
+returns boolean
+language sql stable security definer
+set search_path = public, pg_temp
+as $$
+  select
+    exists (select 1 from public.reading_groups g
+            where g.id = p_group_id and g.created_by = auth.uid())
+    or exists (select 1 from public.group_memberships m
+               where m.group_id = p_group_id
+                 and m.user_id = auth.uid()
+                 and m.is_active
+                 and m.role in ('admin'::public.group_role,
+                                'moderator'::public.group_role))
+    or exists (select 1 from public.group_subscribers s
+               where s.group_id = p_group_id
+                 and s.subscriber_id = auth.uid()
+                 and s.status = 'active');
+$$;
+
+create or replace function public.can_read_channel(p_channel_id uuid)
+returns boolean
+language sql stable security definer
+set search_path = public, pg_temp
+as $$
+  select exists (
+    select 1 from public.group_channels gc
+    where gc.id = p_channel_id
+      and (not gc.is_premium or public.has_group_premium_access(gc.group_id))
+  );
+$$;
+
+create or replace function public.can_read_message(p_message_id uuid)
+returns boolean
+language sql stable security definer
+set search_path = public, pg_temp
+as $$
+  select exists (
+    select 1 from public.channel_messages cm
+    where cm.id = p_message_id and public.can_read_channel(cm.channel_id)
+  );
+$$;
+
+revoke execute on function public.has_group_premium_access(uuid) from public;
+revoke execute on function public.can_read_channel(uuid)          from public;
+revoke execute on function public.can_read_message(uuid)          from public;
+grant  execute on function public.has_group_premium_access(uuid) to authenticated;
+grant  execute on function public.can_read_channel(uuid)          to authenticated;
+grant  execute on function public.can_read_message(uuid)          to authenticated;
+
 -- ------------------------------------------------------- group_channels -----
 -- Writes require an admin/moderator group_membership row — being
 -- reading_groups.created_by is NOT sufficient on its own.
@@ -874,6 +935,12 @@ create policy "Admins can delete custom channels" on public.group_channels
     )
   );
 
+-- Premium gate. RESTRICTIVE, so it ANDs with the permissive membership policy
+-- above instead of ORing with it. See "KNOWN TRAPS" at the bottom.
+create policy "premium_channels_require_entitlement" on public.group_channels
+  as restrictive for select to authenticated
+  using (not is_premium or public.has_group_premium_access(group_id));
+
 -- ----------------------------------------------------- channel_messages -----
 create policy "Users can view messages in their group channels" on public.channel_messages
   for select using (
@@ -905,6 +972,17 @@ create policy "Users can delete their own messages or admins can delete any" on 
         and gm.role = any (array['admin'::group_role, 'moderator'::group_role])
     )
   );
+
+-- Premium gate, both directions: an unentitled member can neither read a
+-- premium channel's messages nor post into it. UPDATE and DELETE are
+-- deliberately NOT gated — a lapsed subscriber may still edit or delete their
+-- own past messages.
+create policy "premium_messages_require_entitlement" on public.channel_messages
+  as restrictive for select to authenticated
+  using (public.can_read_channel(channel_id));
+create policy "premium_message_writes_require_entitlement" on public.channel_messages
+  as restrictive for insert to authenticated
+  with check (public.can_read_channel(channel_id));
 
 -- ------------------------------------------------------ group_book_list -----
 create policy "group_members_can_read_book_list" on public.group_book_list
@@ -1203,6 +1281,14 @@ create policy "Users can add reactions to messages" on public.channel_message_re
 create policy "Users can remove their own reactions" on public.channel_message_reactions
   for delete using (user_id = auth.uid());
 
+-- Premium gate — reactions follow the message they hang off.
+create policy "premium_reactions_require_entitlement" on public.channel_message_reactions
+  as restrictive for select to authenticated
+  using (public.can_read_message(message_id));
+create policy "premium_reaction_writes_require_entitlement" on public.channel_message_reactions
+  as restrictive for insert to authenticated
+  with check (public.can_read_message(message_id));
+
 -- ----------------------------------------------------- message_reactions ----
 -- The SELECT policy joins through group_messages, so rows whose message_id
 -- points at a channel_messages id are never visible.
@@ -1252,6 +1338,25 @@ create policy "payout_account_update_own" on public.creator_payout_accounts
 -- 1. public.group_books does not exist. The live table is group_book_list, and
 --    it has no is_premium column — premium gating exists only on
 --    group_channels.is_premium.
+--
+--    That gate is enforced by the RESTRICTIVE policies
+--    premium_channels_require_entitlement / premium_messages_require_entitlement
+--    / premium_message_writes_require_entitlement and the two
+--    premium_reaction_* policies, all built on has_group_premium_access().
+--
+--    THOSE POLICIES MUST STAY `AS RESTRICTIVE`. Postgres ORs permissive
+--    policies together, so rewriting any of them as permissive would not
+--    tighten anything — it would sit beside the existing "members can view"
+--    policy and silently disable the paywall entirely. This codebase has
+--    already shipped that exact bug once, on the discussions/comments chapter
+--    gate (see migration restore_chapter_gate_on_discussions_and_comments).
+--    Verify with:
+--      select polname, polpermissive from pg_policy
+--       where polname like 'premium_%';   -- polpermissive must be false
+--
+--    Also note the entitlement is the literal group_subscribers.status =
+--    'active'. Stripe's past_due and trialing statuses are written verbatim by
+--    the webhook, so they do NOT grant access.
 --
 -- 2. message_reactions.message_id FKs to group_messages, not channel_messages.
 --    Any web code writing message_reactions for a channel message will fail the
