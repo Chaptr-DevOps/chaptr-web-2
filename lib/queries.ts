@@ -41,3 +41,41 @@ export async function isSubscribedToGroup(groupId: string): Promise<boolean> {
     .maybeSingle()
   return Boolean(data)
 }
+
+/**
+ * True if the current user may see this group's premium channels.
+ *
+ * Mirrors public.has_group_premium_access() in the database — if you change
+ * one, change the other. RLS is the real gate (the restrictive policies added
+ * by migration `premium_channel_rls`); this exists so server components can
+ * decide what to render without discovering access by getting back no rows.
+ *
+ * Note this is deliberately broader than isSubscribedToGroup: an owner or an
+ * admin/moderator has premium access without being a paying subscriber. Use
+ * isSubscribedToGroup for billing UI, where that distinction matters.
+ */
+export async function hasGroupPremiumAccess(groupId: string): Promise<boolean> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return false
+
+  const { data: group } = await supabase
+    .from('reading_groups')
+    .select('created_by')
+    .eq('id', groupId)
+    .maybeSingle()
+  if (group?.created_by === user.id) return true
+
+  const { data: membership } = await supabase
+    .from('group_memberships')
+    .select('role')
+    .eq('group_id', groupId)
+    .eq('user_id', user.id)
+    .eq('is_active', true)
+    .maybeSingle()
+  if (membership?.role === 'admin' || membership?.role === 'moderator') return true
+
+  return isSubscribedToGroup(groupId)
+}

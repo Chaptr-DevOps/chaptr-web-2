@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { getProfile, isSubscribedToGroup } from '@/lib/queries'
+import { getProfile, hasGroupPremiumAccess } from '@/lib/queries'
 import { isUuid } from '@/lib/route-params'
 import { ChatClient } from './chat-client'
 
@@ -50,11 +50,11 @@ export default async function ChatPage({ params }: PageProps) {
   if (!channel) redirect(`/groups/${groupId}`)
 
   // Premium gate — enforced here, not just in the group page's channel list,
-  // so a premium channel can't be reached by deep-linking to its URL.
-  const hasPremiumAccess =
-    group.created_by === profile.id ||
-    membership.role === 'admin' ||
-    (await isSubscribedToGroup(groupId))
+  // so a premium channel can't be reached by deep-linking to its URL. The same
+  // predicate is enforced in the database by the restrictive RLS policies from
+  // migration `premium_channel_rls`; this check produces the redirect rather
+  // than an empty page.
+  const hasPremiumAccess = await hasGroupPremiumAccess(groupId)
 
   if (channel.is_premium && !hasPremiumAccess) {
     redirect(`/groups/${groupId}/subscribe`)

@@ -13,7 +13,7 @@ import {
   ShieldCheck,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
-import { getProfile, isSubscribedToGroup } from '@/lib/queries'
+import { getProfile, hasGroupPremiumAccess } from '@/lib/queries'
 import { isUuid } from '@/lib/route-params'
 import { PageHeader } from '@/components/page-header'
 import { Card } from '@/components/ui/card'
@@ -75,8 +75,7 @@ export default async function GroupDetailPage({ params }: PageProps) {
   // Premium access is per-channel, not per-group: any member can see the group
   // and its free channels, and a subscription (or running the group) unlocks
   // the channels the creator marked premium.
-  const subscribed = await isSubscribedToGroup(groupId)
-  const hasPremiumAccess = isOwner || isAdmin || subscribed
+  const hasPremiumAccess = await hasGroupPremiumAccess(groupId)
 
   // Fetch channels
   const { data: channels } = await supabase
