@@ -17,7 +17,8 @@ insert into public.users (id, username) values
   ('aaaaaaaa-0000-0000-0000-000000000006', 'rlstest_member'),
   ('aaaaaaaa-0000-0000-0000-000000000007', 'rlstest_stranger'),
   ('aaaaaaaa-0000-0000-0000-000000000008', 'rlstest_pastdue'),
-  ('aaaaaaaa-0000-0000-0000-000000000009', 'rlstest_unpaid');
+  ('aaaaaaaa-0000-0000-0000-000000000009', 'rlstest_unpaid'),
+  ('aaaaaaaa-0000-0000-0000-000000000010', 'rlstest_kicked');
 
 insert into public.reading_groups (id, name, created_by, is_paid, price) values
   ('bbbbbbbb-0000-0000-0000-000000000001', 'RLS Test Group',
@@ -31,7 +32,9 @@ insert into public.group_memberships (group_id, user_id, role, is_active) values
   ('bbbbbbbb-0000-0000-0000-000000000001','aaaaaaaa-0000-0000-0000-000000000005','member',    true),
   ('bbbbbbbb-0000-0000-0000-000000000001','aaaaaaaa-0000-0000-0000-000000000006','member',    true),
   ('bbbbbbbb-0000-0000-0000-000000000001','aaaaaaaa-0000-0000-0000-000000000008','member',    true),
-  ('bbbbbbbb-0000-0000-0000-000000000001','aaaaaaaa-0000-0000-0000-000000000009','member',    true);
+  ('bbbbbbbb-0000-0000-0000-000000000001','aaaaaaaa-0000-0000-0000-000000000009','member',    true),
+  -- kicked/left: is_active=false is what leaveGroup and kickMember write.
+  ('bbbbbbbb-0000-0000-0000-000000000001','aaaaaaaa-0000-0000-0000-000000000010','member',    false);
 -- user ...007 is deliberately not a member
 
 insert into public.group_channels (id, group_id, name, channel_type, is_premium, position) values
@@ -42,7 +45,11 @@ insert into public.channel_messages (id, channel_id, user_id, content) values
   ('dddddddd-0000-0000-0000-000000000001','cccccccc-0000-0000-0000-000000000001',
    'aaaaaaaa-0000-0000-0000-000000000001','free message'),
   ('dddddddd-0000-0000-0000-000000000002','cccccccc-0000-0000-0000-000000000002',
-   'aaaaaaaa-0000-0000-0000-000000000001','premium message');
+   'aaaaaaaa-0000-0000-0000-000000000001','premium message'),
+  -- owned by the plain member, in the FREE channel: the relocation probe below
+  -- tries to move this row into the premium channel.
+  ('dddddddd-0000-0000-0000-000000000003','cccccccc-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000006','plain member free message');
 
 insert into public.group_subscribers (group_id, subscriber_id, status) values
   ('bbbbbbbb-0000-0000-0000-000000000001','aaaaaaaa-0000-0000-0000-000000000004','active'),
@@ -117,19 +124,101 @@ insert into rls_results values ('plain member sees FREE channel', true,
   exists(select 1 from public.channel_messages where id='dddddddd-0000-0000-0000-000000000001'));
 reset role;
 
+-- A kicked/departed member (is_active=false) keeps no read access at all --
+-- not even to the free channel. kickMember and leaveGroup only write this
+-- flag, so if RLS ignores it the kick is cosmetic.
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"aaaaaaaa-0000-0000-0000-000000000010","role":"authenticated"}';
+insert into rls_results values ('kicked member sees FREE channel', false,
+  exists(select 1 from public.group_channels   where id='cccccccc-0000-0000-0000-000000000001'),
+  exists(select 1 from public.channel_messages where id='dddddddd-0000-0000-0000-000000000001'));
+reset role;
+
+-- ── Write-side gates ──────────────────────────────────────────────────────
+-- Reads are only half the paywall. A blocked write raises rather than
+-- returning zero rows, so each probe runs in its own subtransaction and
+-- records "did it land", not "did it error".
+
+create temp table rls_write_results (
+  label text, expect boolean, got boolean
+) on commit drop;
+grant insert, select on rls_write_results to authenticated;
+
+set local role authenticated;
+
+-- Relocation: the member may edit their own message (permissive UPDATE keys
+-- on user_id alone), so without a check on the destination they can push a
+-- row they own into a channel they cannot read.
+set local request.jwt.claims = '{"sub":"aaaaaaaa-0000-0000-0000-000000000006","role":"authenticated"}';
+do $$
+declare n int;
+begin
+  begin
+    update public.channel_messages
+       set channel_id = 'cccccccc-0000-0000-0000-000000000002'
+     where id = 'dddddddd-0000-0000-0000-000000000003';
+    get diagnostics n = row_count;
+  exception when others then n := 0;
+  end;
+  insert into rls_write_results values
+    ('member relocates own message into PREMIUM channel', false, n > 0);
+end $$;
+
+set local request.jwt.claims = '{"sub":"aaaaaaaa-0000-0000-0000-000000000010","role":"authenticated"}';
+do $$
+declare n int;
+begin
+  begin
+    insert into public.channel_messages (id, channel_id, user_id, content)
+    values ('dddddddd-0000-0000-0000-000000000004',
+            'cccccccc-0000-0000-0000-000000000001',
+            'aaaaaaaa-0000-0000-0000-000000000010', 'kicked member post');
+    get diagnostics n = row_count;
+  exception when others then n := 0;
+  end;
+  insert into rls_write_results values
+    ('kicked member posts to FREE channel', false, n > 0);
+end $$;
+
+-- Positive control: tightening the gate must not stop an active member from
+-- posting where they belong.
+set local request.jwt.claims = '{"sub":"aaaaaaaa-0000-0000-0000-000000000006","role":"authenticated"}';
+do $$
+declare n int;
+begin
+  begin
+    insert into public.channel_messages (id, channel_id, user_id, content)
+    values ('dddddddd-0000-0000-0000-000000000005',
+            'cccccccc-0000-0000-0000-000000000001',
+            'aaaaaaaa-0000-0000-0000-000000000006', 'active member post');
+    get diagnostics n = row_count;
+  exception when others then n := 0;
+  end;
+  insert into rls_write_results values
+    ('active member posts to FREE channel', true, n > 0);
+end $$;
+
+reset role;
+
 select label,
        expect as expected,
        got_channel,
        got_message,
        case when got_channel = expect and got_message = expect
             then 'PASS' else 'FAIL' end as result
-from rls_results;
+from rls_results
+union all
+select label, expect, got, got,
+       case when got = expect then 'PASS' else 'FAIL' end
+from rls_write_results;
 
 do $$
 declare failures int;
 begin
-  select count(*) into failures from rls_results
-   where got_channel <> expect or got_message <> expect;
+  select (select count(*) from rls_results
+           where got_channel <> expect or got_message <> expect)
+       + (select count(*) from rls_write_results where got <> expect)
+    into failures;
   if failures > 0 then
     raise exception 'premium RLS gate: % case(s) FAILED', failures;
   end if;
