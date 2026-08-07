@@ -94,12 +94,9 @@ export async function POST(req: Request) {
         .eq('group_id', groupId)
       if (error) console.error('Error canceling group_subscribers:', error)
 
-      const { error: memberError } = await supabase
-        .from('group_memberships')
-        .update({ is_active: false })
-        .eq('group_id', groupId)
-        .eq('user_id', userId)
-      if (memberError) console.error('Error deactivating group_memberships:', memberError)
+      // Deliberately does not touch group_memberships: every group is free to
+      // join, only channels are paid. Losing the subscription costs the premium
+      // channel (RLS enforces that) and nothing else.
       break
     }
 
