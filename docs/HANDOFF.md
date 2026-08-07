@@ -150,6 +150,10 @@ All remaining items are in the RN repo except the last two.
 
 ## Branches
 
-- Web `premium-gating`, off `main` @ `d1aa843`. Clean, **not merged** — merging
-  to `main` auto-deploys.
+- Web `premium-gating` was merged to `main` on 2026-08-07 as `7626483`
+  (`--no-ff`, so the whole change is one revertable point) and pushed, which
+  auto-deploys. `main` was at `d1aa843` before the merge.
+  Note that reverting that commit would NOT undo the RLS migrations — those
+  live in the database and would need their own migration to reverse.
 - RN `premium-gating`, off `master`. One commit, `b17f6ca` (a comment).
+  **Not merged.**
